@@ -1,5 +1,4 @@
 import QtQuick
-import Quickshell
 import qs.Commons
 import qs.Ui
 
@@ -9,9 +8,11 @@ BarWidget {
   moduleName: "anson.localsend"
 
   readonly property var localsend: bar && bar.shell ? bar.shell.serviceFor("anson.localsend") : null
-  readonly property color barIconColor: localsend && localsend.incoming
-    ? bar.urgent
-    : (localsend && localsend.ready ? bar.foreground : Qt.darker(bar.foreground, 1.65))
+  readonly property color barIconColor: bar
+    ? (localsend && localsend.incoming
+        ? bar.urgent
+        : (localsend && localsend.ready ? bar.foreground : Qt.darker(bar.foreground, 1.65)))
+    : Color.foreground
 
   readonly property bool opened: panelLoader.item ? panelLoader.item.opened === true : false
   readonly property bool popoutSwitchClosing: panelLoader.item ? panelLoader.item.popoutSwitchClosing === true : false

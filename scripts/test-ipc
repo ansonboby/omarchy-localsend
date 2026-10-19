@@ -31,12 +31,16 @@ print(eval(sys.argv[1], {}, {'d': json.load(sys.stdin)}))
 " "$1"
 }
 
+# Smoke test the receive/decline path end to end against the live daemon.
+# NOTE: the accept leg leaves a RECENT TRANSFERS history row visible until the
+# 24-entry window scrolls it out.
+
 cleanup() {
   [[ -n "${lsend_pid:-}" ]] && kill "$lsend_pid" 2>/dev/null || true
   [[ -n "${watchdog_pid:-}" ]] && kill "$watchdog_pid" 2>/dev/null || true
   [[ -n "${tmpdir:-}" ]] && rm -rf -- "$tmpdir" || true
 }
-trap cleanup EXIT
+trap cleanup EXIT TERM INT
 
 # Daemon must be up.
 ping="$("$controller" ping)"

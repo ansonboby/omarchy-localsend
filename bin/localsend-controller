@@ -76,4 +76,16 @@ fi
 
 verify_controller "$controller" || fail "cached controller checksum does not match the reviewed release"
 chmod 0700 -- "$controller"
+
+# Prune cached binaries of other tags once the pinned one is verified.
+# Only under the default cache layout: scripts/test-launcher points CACHE_DIR
+# at a sandbox it must not have pruned.
+controllers_root="$cache_home/omarchy-localsend/controllers"
+if [[ "$cache_dir" == "$controllers_root/$LOCALSEND_CONTROLLER_TAG" ]]; then
+  for stale in "$controllers_root"/*/; do
+    [[ -d "$stale" && "$(basename -- "$stale")" != "$LOCALSEND_CONTROLLER_TAG" ]] || continue
+    rm -rf -- "$stale"
+  done
+fi
+
 exec "$controller" "$@"

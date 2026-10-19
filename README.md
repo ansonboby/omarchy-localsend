@@ -76,3 +76,4 @@ Closing/relaunching the shell re-runs only this headless receiver.
 - QML layer: `service/Receiver.qml` supervises one controller daemon per shell session over the private socket; `BarWidget.qml` is the bar icon and `Panel.qml` the panel; all follow the Omarchy plugin design language.
 
 Build the controller locally (needs the Rust toolchain): `scripts/build-controller`. Run everything: `scripts/check`. Smoke-test the receive/decline path end-to-end (daemon running): `scripts/test-ipc`.
+- Before trusting a new controller release, run one real **outgoing** send to a LAN device (loopback cannot exercise it — discovery needs multicast). Fallback if it misbehaves: re-point `controller-release.env` and the launcher URL to the upstream `controller-v2.0.3` pin.
