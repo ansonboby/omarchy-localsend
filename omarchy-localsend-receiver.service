@@ -1,0 +1,16 @@
+[Unit]
+Description=LocalSend receiver for the omarchy localsend bar plugin
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=%h/.config/omarchy/plugins/anson.localsend/scripts/receive-run.sh
+Restart=on-failure
+RestartSec=3
+# The receiver keeps running across shell reloads; stop is explicit from the panel.
+KillSignal=SIGTERM
+TimeoutStopSec=5
+
+[Install]
+WantedBy=default.target

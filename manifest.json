@@ -1,0 +1,93 @@
+{
+  "schemaVersion": 1,
+  "id": "anson.localsend",
+  "name": "LocalSend",
+  "version": "1.0.0",
+  "author": "ansonboby",
+  "license": "MIT",
+  "description": "A LocalSend mini-app in the bar: pick a nearby device, send files, folders, clipboard or a text message, toggle receive mode with notifications, and see recent transfers. Runs on the headless lsend CLI (v2 protocol) so the full LocalSend app stays free for whatever else.",
+  "kinds": [
+    "bar-widget"
+  ],
+  "entryPoints": {
+    "barWidget": "Panel.qml"
+  },
+  "barWidget": {
+    "displayName": "LocalSend",
+    "description": "Mini LocalSend menu: device scan, send files/folder/clipboard/text, receive toggle with PIN, transfer history.",
+    "category": "Utilities",
+    "allowMultiple": false,
+    "defaultSection": "right",
+    "defaults": {
+      "saveDir": "~/Downloads",
+      "requirePin": false,
+      "pin": "",
+      "scanTimeoutMs": 6000,
+      "iconGlyph": "",
+      "iconImage": "/usr/share/icons/hicolor/512x512/apps/localsend.png",
+      "historyLimit": 50,
+      "openAppOnClose": false
+    },
+    "schema": [
+      {
+        "key": "saveDir",
+        "type": "path",
+        "label": "Save incoming files to",
+        "defaultValue": "~/Downloads",
+        "description": "Where received files land. The receive toggle (re)starts the receiver when this changes."
+      },
+      {
+        "key": "requirePin",
+        "type": "boolean",
+        "label": "Require PIN to receive",
+        "defaultValue": false,
+        "description": "Senders must supply the PIN below (same trust model as PIN mode in the app)."
+      },
+      {
+        "key": "pin",
+        "type": "string",
+        "label": "Receive PIN",
+        "defaultValue": "",
+        "description": "Numeric PIN, only used when 'Require PIN' is on."
+      },
+      {
+        "key": "scanTimeoutMs",
+        "type": "integer",
+        "label": "Device scan timeout (ms)",
+        "min": 2000,
+        "max": 10000,
+        "step": 500,
+        "defaultValue": 6000
+      },
+      {
+        "key": "iconGlyph",
+        "type": "string",
+        "label": "Bar glyph override",
+        "defaultValue": "",
+        "description": "Optional nerd-font glyph for the bar button instead of the logo image. Leave empty to use the LocalSend logo."
+      },
+      {
+        "key": "iconImage",
+        "type": "path",
+        "label": "Bar logo image",
+        "defaultValue": "/usr/share/icons/hicolor/512x512/apps/localsend.png"
+      },
+      {
+        "key": "historyLimit",
+        "type": "integer",
+        "label": "History entries kept",
+        "min": 0,
+        "max": 200,
+        "step": 10,
+        "defaultValue": 50
+      },
+      {
+        "key": "openAppOnClose",
+        "type": "boolean",
+        "label": "Offer app shortcut in menu",
+        "defaultValue": true,
+        "description": "Show the 'Open full LocalSend app' row in the menu."
+      }
+    ]
+  }
+}
