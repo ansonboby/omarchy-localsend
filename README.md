@@ -1,120 +1,72 @@
 # LocalSend for Omarchy
 
-A native Omarchy Shell integration for [LocalSend](https://localsend.org/) that runs entirely in the background. Discover devices, choose files or clipboard text, review incoming requests, and track transfers without opening the LocalSend GUI.
+Native Omarchy Shell integration for [LocalSend](https://localsend.org/): the device lives in your bar and the LocalSend app stays closed. Enter requests are gated behind explicit **Accept / Decline**, transfers stream with live progress, and history survives restarts.
 
-![LocalSend panel showing a nearby device](preview.png)
+Based on `cryptobredda/omarchy-localsend` (MIT), reworked under this fork's identity with settings, alias continuity, and persistent history on top.
 
 ## Features
 
-- Theme-controlled symbolic status-bar icon
-- Official colored LocalSend icon inside the panel
-- Nearby-device discovery over LocalSend protocol v2.2
-- File, folder, and clipboard-text sharing
-- Explicit Accept and Decline controls for incoming requests
-- Desktop notifications for new requests
-- Live transfer progress, history, errors, and cancellation
-- Incoming clipboard text copied with `wl-copy`
-- Incoming files saved to the XDG Downloads directory
-- TLS certificate pinning and a private Unix management socket
-- No LocalSend GUI, TUI, or tray process
+- Headless controller on the official LocalSend protocol core (v2.2) — no LocalSend GUI, TUI, or tray
+- Auto-run device discovery with a manual refresh; share **files, folders, or clipboard text**
+- Incoming transfers are **never** auto-accepted: an Accept/Decline card appears in the panel, plus a desktop notification whose click opens the panel
+- Live transfer progress, cancel, and error surfacing for both directions
+- **Persistent history** (last 24 finished transfers in `~/.local/state/omarchy/localsend-history.json`) shown as RECENT TRANSFERS, with one-click clear
+- **Aliased identity continuity**: device name falls back to `~/.config/lsend/alias.txt` (the headless lsend CLI's name), then the LocalSend GUI profile, then the hostname
+- TLS certificate pinning and a private, 0600 Unix management socket
+- Checksum-pinned controller binary: the launcher verifies sha256 **before every execution**
 
 ## Install
 
-Quit any running LocalSend GUI first because both receivers use port `53317`, then run:
+Quit any running LocalSend GUI first — both programs bind port `53317` — then:
 
 ```bash
-omarchy plugin add https://github.com/cryptobredda/omarchy-localsend --enable --yes
+omarchy plugin add https://github.com/ansonboby/omarchy-localsend --enable --yes
 ```
 
-The plugin appears in the right side of the bar by default. On first use, its reviewed launcher downloads the checksum-pinned x86-64 controller from the repository's attested GitHub release. Rust is not required for installation, and the verified controller is reused while offline.
+## Settings
 
-Runtime requirements:
+Settings live inline in the plugin's `shell.json` entry (integrated settings UI, `omarchy-plugin` tooling, or a plain edit all work):
 
-- Omarchy 4.0 or newer, which provides the shell, file picker, and notification helpers
-- x86-64 Linux with glibc 2.39 or newer
-- `curl` for the initial HTTPS artifact download
-- `coreutils` for the bounded download and size/SHA-256 verification
-- `util-linux` for `setpriv`
-- `wl-clipboard` for `wl-copy` and `wl-paste`
-- Local network access to TCP and UDP port `53317`
+```json
+{ "id": "anson.localsend", "alias": "Great Strawberry", "destination": "~/Downloads" }
+```
 
-The LocalSend application is not required. This plugin does not modify user configuration.
+| Key | Default | Meaning |
+| --- | --- | --- |
+| `alias` | *(empty)* | Name other devices see. Falls back to `~/.config/lsend/alias.txt`, then the LocalSend GUI profile, then the hostname |
+| `destination` | *(XDG Downloads)* | Where accepted files land (`~` allowed) |
 
-To update later:
+Changes apply on the next receiver restart (shell restart, or disable/enable the plugin).
+
+## IPC
 
 ```bash
-omarchy plugin update bredda.localsend --yes
+quickshell ipc -p /usr/share/omarchy/shell call anson.localsend open | close | toggle | refresh | clearHistory
 ```
 
-## Remove
+Keys inside the panel: `esc` close · `r` refresh · `f` share files · `d` share folder · `c` share clipboard · middle-click the bar icon to refresh devices.
+
+## Transfer decisions from a terminal
+
+The controller binary speaks to the daemon's socket directly, which is handy for scripting the phone handoff flow (the same path the panel's Accept button uses):
 
 ```bash
-omarchy plugin remove bredda.localsend --yes
+~/.config/omarchy/plugins/anson.localsend/bin/localsend-controller snapshot | jq
+# then someone sends from a phone on the same Wi-Fi, and the request id appears above
+~/.config/omarchy/plugins/anson.localsend/bin/localsend-controller accept --request <request-id>
+~/.config/omarchy/plugins/anson.localsend/bin/localsend-controller decline --request <request-id>
+~/.config/omarchy/plugins/anson.localsend/bin/localsend-controller cancel --transfer <transfer-id>
 ```
 
-Removal stops the receiver and removes the plugin code. The persistent identity is intentionally retained so reinstalling does not change the device fingerprint. To reset that identity too, remove `$XDG_STATE_HOME/omarchy/localsend-controller`, or `~/.local/state/omarchy/localsend-controller` when `XDG_STATE_HOME` is unset.
+Incoming files land in the chosen destination with collision-safe names; incoming clipboard text is copied instead of saved.
 
-## Use
+## Port note
 
-1. Open the LocalSend bar panel.
-2. Choose **Files**, **Folder**, or **Clipboard**.
-3. Select a nearby device.
-4. Accept or decline incoming requests directly in the panel.
+LocalSend traffic binds UDP+TCP `53317`. While this plugin is enabled the LocalSend GUI app must stay closed — it owns the same port. The controller tails the receiver lifecycle against the shell, so closing/relaunching the shell re-runs only this headless receiver.
 
-Keyboard shortcuts while the panel is open:
+## Development
 
-| Key | Action |
-| --- | --- |
-| `r` | Refresh nearby devices |
-| `f` | Choose files |
-| `d` | Choose a folder |
-| `c` | Select clipboard text |
+- Controller: Rust under `controller/` (pinned to the official LocalSend core, protocol v2.2), release-built via GitHub Actions and pinned with size + sha256 in `controller-release.env`; the runtime launcher re-verifies both before every launch.
+- QML layer: `service/Receiver.qml` supervises one controller daemon per shell session over the private socket; `widget/LocalSendBar.qml` is the panel + bar icon; both follow the Omarchy plugin design language.
 
-The receiver uses the alias from an existing LocalSend installation when available. Otherwise, it uses the machine hostname.
-
-## Runtime Data
-
-- Management socket: `$XDG_RUNTIME_DIR/omarchy-localsend.sock`
-- Persistent identity: `$XDG_STATE_HOME/omarchy/localsend-controller/identity.pem`
-- Verified controller cache: `$XDG_CACHE_HOME/omarchy-localsend/controllers/`
-- Incoming files: XDG Downloads directory, normally `~/Downloads`
-
-The socket and identity are created with mode `0600`. Incoming transfers are never accepted automatically.
-
-## Build From Source
-
-Requirements:
-
-- Current stable Rust toolchain
-- `qmllint` for QML validation
-- Omarchy for manifest validation and runtime testing
-
-Build the controller and SHA-256 checksum into `dist/`:
-
-```bash
-./scripts/build-controller
-```
-
-Run all local checks:
-
-```bash
-./scripts/check
-```
-
-Cargo output is kept under `$XDG_CACHE_HOME/omarchy-localsend/target` by default, outside the plugin tree. This avoids triggering Omarchy's recursive plugin watcher for every Cargo artifact.
-
-## Release Verification
-
-No compiled executable is committed to this repository. `bin/localsend-controller` is a readable Bash launcher, and `controller-release.env` pins one release tag, asset name, expected byte size, source commit, and SHA-256 digest. The launcher applies that byte ceiling while downloading, then verifies the exact size and digest before every execution and rejects modified or unexpected artifacts.
-
-`.github/workflows/release-controller.yml` builds releases from tagged source using Rust 1.97.1 and actions pinned by full commit SHA. It publishes the checksum and a GitHub artifact provenance attestation. The regular CI workflow independently downloads that exact release, verifies its checksum and attestation against the expected workflow, tag, and source commit, and only then executes it.
-
-## Architecture
-
-`service/Receiver.qml` supervises one foreground controller process for the shell session. The launcher at `bin/localsend-controller` resolves the reviewed release and replaces itself with the verified executable. `widget/LocalSendBar.qml` is a thin per-monitor view that communicates with the service through short JSON RPC commands.
-
-The Rust controller uses LocalSend's official core library at pinned commit `af0416be50770a97760f7070684bc667b759a15c`. It provides discovery, HTTPS transport, transfer decisions, progress, and cancellation without wrapping the interactive LocalSend CLI.
-
-## License
-
-MIT. LocalSend and the Rust dependencies retain their respective licenses.
+Build the controller locally (needs the Rust toolchain): `scripts/build-controller`. Run everything: `scripts/check`.

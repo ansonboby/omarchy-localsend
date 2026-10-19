@@ -1,11 +1,11 @@
 {
   "schemaVersion": 1,
-  "id": "bredda.localsend",
+  "id": "anson.localsend",
   "name": "LocalSend",
-  "version": "2.0.4",
-  "author": "bredda",
+  "version": "2.0.0",
+  "author": "ansonboby",
   "license": "MIT",
-  "description": "Run LocalSend headlessly and manage nearby devices, sharing, and incoming transfers from the Omarchy bar.",
+  "description": "LocalSend from the bar: automatic nearby-device discovery, explicit accept/decline for incoming transfers, share files/folders/clipboard, live transfer progress, and persistent history. Headless controller, no LocalSend GUI or tray.",
   "kinds": [
     "service",
     "bar-widget"
@@ -17,9 +17,25 @@
   },
   "barWidget": {
     "displayName": "LocalSend",
-    "description": "Headless LocalSend receiver with device selection, sharing, incoming decisions, and transfer progress.",
+    "description": "Headless LocalSend receiver with device selection, sharing, incoming accept/decline, live transfers, and persistent history.",
     "category": "Files",
     "allowMultiple": false,
-    "defaultSection": "right"
+    "defaultSection": "right",
+    "schema": [
+      {
+        "key": "alias",
+        "type": "string",
+        "label": "Device alias",
+        "defaultValue": "",
+        "description": "Name other devices see. Empty = ~/.config/lsend/alias.txt when present, then the LocalSend GUI profile, then the hostname."
+      },
+      {
+        "key": "destination",
+        "type": "path",
+        "label": "Save incoming files to",
+        "defaultValue": "~/Downloads",
+        "description": "Where accepted files land. Restarting the receiver (or the shell) applies a change."
+      }
+    ]
   }
 }

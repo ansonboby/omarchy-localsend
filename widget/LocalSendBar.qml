@@ -35,6 +35,21 @@ Panel {
     if (!localsend || !(localsend.transfers instanceof Array)) return []
     return localsend.transfers.slice(0, 6)
   }
+  readonly property var recentHistory: {
+    var liveIds = ({})
+    if (localsend && localsend.transfers instanceof Array)
+      for (var i = 0; i < localsend.transfers.length; i++) {
+        var transferId = String(localsend.transfers[i] && localsend.transfers[i].id || "")
+        if (transferId !== "") liveIds[transferId] = true
+      }
+    var out = []
+    if (localsend && localsend.history instanceof Array)
+      for (var j = 0; j < localsend.history.length && out.length < 8; j++) {
+        var entry = localsend.history[j]
+        if (entry && entry.id && !liveIds[String(entry.id)]) out.push(entry)
+      }
+    return out
+  }
 
   function closeForChooser(kind) {
     close()
@@ -91,6 +106,37 @@ Panel {
     return state === "preparing" || state === "transferring" || state === "cancelling"
   }
 
+  function historyTitle(entry) {
+    return entry ? String(entry.name || "item") : "Transfer"
+  }
+
+  function historyMeta(entry) {
+    if (!entry) return ""
+    var direction = String(entry.direction || "out") === "in" ? "FROM" : "TO"
+    var peer = entry.peer && String(entry.peer) !== "" ? String(entry.peer) : "unknown device"
+    return direction + " " + peer + "  /  " + relativeTime(Number(entry.at || 0))
+  }
+
+  function relativeTime(epochMs) {
+    var ms = Date.now() - Number(epochMs || 0)
+    if (!isFinite(ms) || ms <= 0) return "just now"
+    var minutes = Math.floor(ms / 60000)
+    if (minutes < 1) return "just now"
+    if (minutes < 60) return minutes + "m ago"
+    var hours = Math.floor(minutes / 60)
+    if (hours < 24) return hours + "h ago"
+    var days = Math.floor(hours / 24)
+    if (days < 7) return days + "d ago"
+    var date = new Date(Number(epochMs))
+    return date.getFullYear() + "-" + ("0" + (date.getMonth() + 1)).slice(-2) + "-" + ("0" + date.getDate()).slice(-2)
+  }
+
+  function historyState(entry) {
+    var value = entry ? String(entry.state || "") : ""
+    if (value === "") return entry && entry.ok === false ? "FAILED" : "DONE"
+    return stateLabel(value)
+  }
+
   implicitWidth: button.implicitWidth
   implicitHeight: button.implicitHeight
 
@@ -107,6 +153,7 @@ Panel {
     function hide(): void { root.close() }
     function toggle(): void { root.toggle() }
     function refresh(): string { if (root.localsend) root.localsend.refresh(); return "ok" }
+    function clearHistory(): string { if (root.localsend) root.localsend.clearHistory(); return "ok" }
   }
 
   BarIconButton {
@@ -516,6 +563,45 @@ Panel {
             }
           }
 
+          Column {
+            visible: root.recentHistory.length > 0
+            width: parent.width
+            spacing: Style.space(8)
+
+            Row {
+              width: parent.width
+
+              PanelSectionHeader {
+                text: "RECENT TRANSFERS"
+                foreground: root.foreground
+                fontFamily: root.fontFamily
+              }
+
+              PanelActionButton {
+                iconText: "󰅖"
+                tooltipText: "Clear history"
+                foreground: root.dim
+                fontFamily: root.fontFamily
+                onClicked: if (root.localsend) root.localsend.clearHistory()
+              }
+            }
+
+            Column {
+              width: parent.width
+              spacing: Style.space(4)
+
+              Repeater {
+                model: root.recentHistory
+
+                HistoryRow {
+                  required property var modelData
+                  width: parent.width
+                  historyEntry: modelData
+                }
+              }
+            }
+          }
+
           Text {
             visible: !!(root.localsend && root.localsend.daemon.destination)
             width: parent.width
@@ -695,6 +781,64 @@ Panel {
       enabled: root.payloadReady && root.localsend && !root.localsend.busy
       cursorShape: enabled ? Qt.PointingHandCursor : Qt.ArrowCursor
       onClicked: if (deviceRow.device) root.localsend.sendToDevice(deviceRow.device.fingerprint)
+    }
+  }
+
+  component HistoryRow: CursorSurface {
+    id: historyRow
+
+    property var historyEntry: null
+    readonly property bool failed: historyEntry && (historyEntry.ok === false || String(historyEntry.state || "") === "failed")
+
+    foreground: root.foreground
+    implicitHeight: Style.space(46)
+
+    RowLayout {
+      anchors.fill: parent
+      anchors.leftMargin: Style.space(10)
+      anchors.rightMargin: Style.space(8)
+      spacing: Style.space(9)
+
+      Text {
+        text: historyEntry && String(historyEntry.direction || "") === "in" ? "󰁅" : "󰁝"
+        color: historyRow.failed ? root.urgent : root.dim
+        font.family: root.fontFamily
+        font.pixelSize: Style.font.body
+      }
+
+      ColumnLayout {
+        Layout.fillWidth: true
+        spacing: Style.space(1)
+
+        Text {
+          Layout.fillWidth: true
+          text: root.historyTitle(historyRow.historyEntry)
+          color: root.foreground
+          font.family: root.fontFamily
+          font.pixelSize: Style.font.body
+          elide: Text.ElideMiddle
+          textFormat: Text.PlainText
+        }
+
+        Text {
+          Layout.fillWidth: true
+          text: root.historyMeta(historyRow.historyEntry)
+          color: root.dim
+          font.family: root.fontFamily
+          font.pixelSize: Style.font.caption
+          elide: Text.ElideRight
+          textFormat: Text.PlainText
+        }
+      }
+
+      Text {
+        text: root.historyState(historyRow.historyEntry)
+        color: historyRow.failed ? root.urgent : root.dim
+        font.family: root.fontFamily
+        font.pixelSize: Style.font.caption
+        font.bold: true
+        font.letterSpacing: 0.6
+      }
     }
   }
 

@@ -22,6 +22,32 @@ Item {
   property string payloadKind: ""
   property var selectedPaths: []
   property string payloadLabel: ""
+  // Finished transfers mirrored from snapshots and persisted to disk, so
+  // history survives daemon and shell restarts.
+  property var history: []
+
+  // --- launch settings ------------------------------------------------------
+  // Settings live inline in ~/.config/omarchy/shell.json under this plugin's
+  // entry (plugins[] or bar.layout item). Read directly because service-kind
+  // plugins get no runtime settings injection; key names mirror the manifest
+  // schema: alias, destination.
+  readonly property string home: Quickshell.env("HOME")
+  readonly property string shellConfigPath: home + "/.config/omarchy/shell.json"
+  readonly property string statePath: home + "/.local/state/omarchy/localsend-history.json"
+  readonly property string aliasTxtPath: home + "/.config/lsend/alias.txt"
+  property var pluginSettings: ({})
+  property string aliasTxtAlias: ""
+  readonly property string settingsAlias: String(pluginSettings.alias || "").trim()
+  readonly property string resolvedAlias: settingsAlias !== "" ? settingsAlias : aliasTxtAlias
+  readonly property string settingsDestinationRaw: String(pluginSettings.destination || "").trim()
+  readonly property string resolvedDestination: settingsDestinationRaw.startsWith("~")
+    ? home + settingsDestinationRaw.slice(1)
+    : settingsDestinationRaw
+  property string _launchSignature: ""
+
+  function launchSignature() {
+    return String(resolvedAlias) + "|" + String(resolvedDestination)
+  }
 
   readonly property bool choosing: chooserProcess.running
   readonly property bool busy: choosing || rpcProcess.running
@@ -90,7 +116,11 @@ Item {
     _intentionalStop = false
     ready = false
     phase = "starting"
-    daemonProcess.command = ["setpriv", "--pdeathsig", "TERM", controllerPath, "daemon"]
+    var args = ["setpriv", "--pdeathsig", "TERM", controllerPath, "daemon"]
+    if (resolvedAlias !== "") args.push("--alias", resolvedAlias)
+    if (resolvedDestination !== "") args.push("--destination", resolvedDestination)
+    _launchSignature = launchSignature()
+    daemonProcess.command = args
     daemonProcess.running = true
   }
 
@@ -232,7 +262,108 @@ Item {
     ready = String(snapshot.daemon.status || "") === "running"
     phase = ready ? "running" : String(snapshot.daemon.status || "unavailable")
     if (snapshot.error && snapshot.error.message) lastError = concise(snapshot.error.message)
+    rememberFinished(snapshot.transfers)
     if (incoming && incoming.id && String(incoming.id) !== previousRequest) notifyIncoming(incoming)
+  }
+
+  function rememberFinished(list) {
+    if (!Array.isArray(list)) return
+    var current = Array.isArray(history) ? history.slice() : []
+    for (var i = 0; i < list.length; i++) {
+      var transfer = list[i]
+      if (!transfer || !transfer.id) continue
+      var state = String(transfer.state || "")
+      if (state !== "completed" && state !== "declined" && state !== "cancelled" && state !== "failed") continue
+      var files = transfer.files instanceof Array ? transfer.files : []
+      var entry = {
+        id: String(transfer.id),
+        direction: String(transfer.direction || "") === "incoming" ? "in" : "out",
+        state: state,
+        name: files.length === 1
+          ? String(files[0].name || "item")
+          : String(transfer.fileCount || files.length || 1) + " items",
+        peer: transfer.peer && transfer.peer.alias ? String(transfer.peer.alias) : "",
+        bytes: Number(transfer.totalBytes || 0),
+        at: Number(transfer.finishedAt && Date.parse(transfer.finishedAt)
+          ? Date.parse(transfer.finishedAt)
+          : (transfer.updatedAt && Date.parse(transfer.updatedAt) ? Date.parse(transfer.updatedAt) : Date.now())),
+        ok: state === "completed"
+      }
+      var replaced = false
+      for (var j = 0; j < current.length; j++) {
+        if (current[j].id !== entry.id) continue
+        if (current[j].state === entry.state) { replaced = true; break }
+        current.splice(j, 1)
+        break
+      }
+      if (replaced) continue
+      current.unshift(entry)
+    }
+    if (current.length > 24) current = current.slice(0, 24)
+    if (JSON.stringify(current) !== JSON.stringify(history)) {
+      history = current
+      persistHistory()
+    }
+  }
+
+  function persistHistory() {
+    try {
+      historyFile.setText(JSON.stringify(history, null, 2))
+    } catch (error) {}
+  }
+
+  function loadHistory(raw) {
+    var data = null
+    try { data = JSON.parse(String(raw || "[]")) } catch (error) { data = null }
+    var out = []
+    if (Array.isArray(data)) {
+      for (var i = 0; i < data.length && i < 24; i++) {
+        var entry = data[i]
+        if (!entry || !entry.id || !entry.name) continue
+        out.push(entry)
+      }
+    }
+    history = out
+  }
+
+  function clearHistory() {
+    history = []
+    persistHistory()
+  }
+
+  function loadShellConfig(raw) {
+    var config = null
+    try { config = JSON.parse(String(raw || "{}")) } catch (error) { config = null }
+    var moduleId = (manifest && manifest.id) ? String(manifest.id) : ""
+    var entries = []
+    if (config && Array.isArray(config.plugins)) entries = entries.concat(config.plugins)
+    var layout = config && config.bar && config.bar.layout ? config.bar.layout : null
+    if (layout) {
+      var sections = ["left", "center", "right"]
+      for (var s = 0; s < sections.length; s++) {
+        var list = Array.isArray(layout[sections[s]]) ? layout[sections[s]] : []
+        entries = entries.concat(list)
+      }
+    }
+    var entry = null
+    for (var i = 0; i < entries.length; i++) {
+      if (entries[i] && String(entries[i].id || "") === moduleId) { entry = entries[i]; break }
+    }
+    var previousAlias = String(pluginSettings.alias || "")
+    var previousDestination = String(pluginSettings.destination || "")
+    var next = ({})
+    if (entry) {
+      for (var key in entry) if (key !== "id") next[key] = entry[key]
+    }
+    pluginSettings = next
+
+    // Relaunch the daemon only when the derived flags actually changed; the
+    // next natural start picks new settings for free.
+    var aliasChanged = String(pluginSettings.alias || "") !== previousAlias
+    var destinationChanged = String(pluginSettings.destination || "") !== previousDestination
+    if ((aliasChanged || destinationChanged) && daemonProcess.running &&
+        _launchSignature !== "" && launchSignature() !== _launchSignature)
+      restartDaemon()
   }
 
   function notifyIncoming(request) {
@@ -252,9 +383,9 @@ Item {
       "--app-name", "LocalSend",
       "--urgency", "normal",
       "--glyph", "󰒊",
-      "--exec", "omarchy-shell -q shell summon anson.localsend",
       "Incoming LocalSend request",
-      body
+      body,
+      "--exec", "omarchy-shell", "-q", "shell", "summon", "anson.localsend"
     ])
   }
 
@@ -451,6 +582,41 @@ Item {
       onStreamFinished: root._rpcError = text
     }
     onExited: function(exitCode) { root.finishRpc(exitCode) }
+  }
+
+  FileView {
+    id: shellConfigFile
+    path: root.shellConfigPath
+    atomicWrites: false
+    watchChanges: true
+    printErrors: false
+    onLoaded: root.loadShellConfig(text())
+    onLoadFailed: root.pluginSettings = ({})
+    onFileChanged: reload()
+  }
+
+  // Alias continuity with the headless lsend CLI: when no shell.json alias is
+  // configured, use the same "Great Strawberry"-style name the CLI stores.
+  FileView {
+    id: aliasTxtFile
+    path: root.aliasTxtPath
+    watchChanges: false
+    printErrors: false
+    onLoaded: {
+      var value = String(text() || "").trim().split("\n")[0].trim()
+      root.aliasTxtAlias = value.substring(0, 128)
+    }
+    onLoadFailed: root.aliasTxtAlias = ""
+  }
+
+  FileView {
+    id: historyFile
+    path: root.statePath
+    atomicWrites: true
+    watchChanges: false
+    printErrors: false
+    onLoaded: root.loadHistory(text())
+    onLoadFailed: root.history = []
   }
 
   Process {
