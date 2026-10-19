@@ -31,7 +31,7 @@ command -v stat >/dev/null 2>&1 || fail "stat is required to verify the controll
 cache_home="${XDG_CACHE_HOME:-${HOME:?HOME is required}/.cache}"
 cache_dir="${LOCALSEND_CONTROLLER_CACHE_DIR:-$cache_home/omarchy-localsend/controllers/$LOCALSEND_CONTROLLER_TAG}"
 controller="$cache_dir/$LOCALSEND_CONTROLLER_ASSET"
-url="https://github.com/cryptobredda/omarchy-localsend/releases/download/$LOCALSEND_CONTROLLER_TAG/$LOCALSEND_CONTROLLER_ASSET"
+url="https://github.com/ansonboby/omarchy-localsend/releases/download/$LOCALSEND_CONTROLLER_TAG/$LOCALSEND_CONTROLLER_ASSET"
 
 verify_controller() {
   local candidate="$1"
