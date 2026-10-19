@@ -11,7 +11,7 @@ Based on `cryptobredda/omarchy-localsend` (MIT), reworked under this fork's iden
 - Incoming transfers are **never** auto-accepted: an Accept/Decline card appears in the panel, plus a desktop notification whose click opens the panel
 - Live transfer progress, cancel, and error surfacing for both directions
 - **Persistent history** (last 24 finished transfers in `~/.local/state/omarchy/localsend-history.json`) shown as RECENT TRANSFERS, with one-click clear
-- **Aliased identity continuity**: device name falls back to `~/.config/lsend/alias.txt` (the headless lsend CLI's name), then the LocalSend GUI profile, then the hostname
+- **Synced with the LocalSend app**: device name follows the app's own (`flutter.ls_alias`) unless overridden; when the app runs, the daemon steps aside and hands it port `53317`, resuming when the app closes
 - TLS certificate pinning and a private, 0600 Unix management socket
 - Checksum-pinned controller binary: the launcher verifies sha256 **before every execution**
 
@@ -28,12 +28,12 @@ omarchy plugin add https://github.com/ansonboby/omarchy-localsend --enable --yes
 Settings live inline in the plugin's `shell.json` entry (integrated settings UI, `omarchy-plugin` tooling, or a plain edit all work):
 
 ```json
-{ "id": "anson.localsend", "alias": "Great Strawberry", "destination": "~/Downloads" }
+{ "id": "anson.localsend", "destination": "~/Downloads" }
 ```
 
 | Key | Default | Meaning |
 | --- | --- | --- |
-| `alias` | *(empty)* | Name other devices see. Falls back to `~/.config/lsend/alias.txt`, then the LocalSend GUI profile, then the hostname |
+| `alias` | *(empty)* | Name other devices see. Empty = the LocalSend app's own device name, then the hostname |
 | `destination` | *(XDG Downloads)* | Where accepted files land (`~` allowed) |
 
 Changes apply on the next receiver restart (shell restart, or disable/enable the plugin).
@@ -60,9 +60,15 @@ The controller binary speaks to the daemon's socket directly, which is handy for
 
 Incoming files land in the chosen destination with collision-safe names; incoming clipboard text is copied instead of saved.
 
-## Port note
+## Port note — syncing with the LocalSend app
 
-LocalSend traffic binds UDP+TCP `53317`. While this plugin is enabled the LocalSend GUI app must stay closed — it owns the same port. The controller tails the receiver lifecycle against the shell, so closing/relaunching the shell re-runs only this headless receiver.
+LocalSend traffic binds UDP+TCP `53317`. This plugin syncs with your installed LocalSend app instead of fighting it:
+
+- **Name**: the daemon follows the app's own device name (its `flutter.ls_alias`) unless you set `alias` in settings.
+- **Port**: a watcher polls every 0.7 s — when the LocalSend app launches, the daemon shuts down gracefully so the app owns the port (no "offline" error 98 in the app); when the app closes, the daemon takes the port back and re-reads the app's current name.
+- The panel shows `APP RUNNING` with a handoff note while the app owns the port; action tiles disable and history stays visible.
+
+Closing/relaunching the shell re-runs only this headless receiver.
 
 ## Development
 

@@ -27,7 +27,7 @@
         "type": "string",
         "label": "Device alias",
         "defaultValue": "",
-        "description": "Name other devices see. Empty = ~/.config/lsend/alias.txt when present, then the LocalSend GUI profile, then the hostname."
+        "description": "Name other devices see. Empty = the LocalSend app's own device name, then the hostname."
       },
       {
         "key": "destination",

@@ -34,11 +34,11 @@ Item {
   readonly property string home: Quickshell.env("HOME")
   readonly property string shellConfigPath: home + "/.config/omarchy/shell.json"
   readonly property string statePath: home + "/.local/state/omarchy/localsend-history.json"
-  readonly property string aliasTxtPath: home + "/.config/lsend/alias.txt"
   property var pluginSettings: ({})
-  property string aliasTxtAlias: ""
   readonly property string settingsAlias: String(pluginSettings.alias || "").trim()
-  readonly property string resolvedAlias: settingsAlias !== "" ? settingsAlias : aliasTxtAlias
+  // No override -> pass no --alias, so the daemon's own chain runs: the
+  // LocalSend app's stored name (flutter.ls_alias), then the hostname.
+  readonly property string resolvedAlias: settingsAlias
   readonly property string settingsDestinationRaw: String(pluginSettings.destination || "").trim()
   readonly property string resolvedDestination: settingsDestinationRaw.startsWith("~")
     ? home + settingsDestinationRaw.slice(1)
@@ -65,6 +65,9 @@ Item {
   }
 
   property bool _intentionalStop: false
+  // The official LocalSend app is the primary interface: while it runs this
+  // daemon steps aside so the app owns port 53317, and resumes when it closes.
+  property bool appMode: false
   property bool _restartRequested: false
   property int _restartAttempt: 0
   property var _rpcQueue: []
@@ -113,6 +116,10 @@ Item {
 
   function startDaemon() {
     if (controllerPath === "" || daemonProcess.running) return
+    if (appMode) {
+      phase = "app-running"
+      return
+    }
     _intentionalStop = false
     ready = false
     phase = "starting"
@@ -125,7 +132,7 @@ Item {
   }
 
   function scheduleRestart(immediate) {
-    if (_intentionalStop || controllerPath === "") return
+    if (_intentionalStop || appMode || controllerPath === "") return
     var delay = immediate === true ? 200 : Math.min(30000, 1000 * Math.pow(2, Math.min(_restartAttempt, 5)))
     _restartAttempt++
     restartTimer.interval = delay
@@ -133,6 +140,10 @@ Item {
   }
 
   function restartDaemon() {
+    if (appMode) {
+      phase = "app-running"
+      return
+    }
     _restartRequested = true
     _intentionalStop = false
     ready = false
@@ -389,6 +400,28 @@ Item {
     ])
   }
 
+  function handleAppProbe(detected) {
+    if (detected === appMode) return
+    appMode = detected
+    if (detected) {
+      // The user opened the LocalSend app: free port 53317 for it.
+      _rpcQueue = []
+      _snapshotQueued = false
+      _currentRpc = null
+      if (rpcProcess.running) rpcProcess.running = false
+      if (daemonProcess.running) {
+        _intentionalStop = true
+        shutdownProcess.command = [controllerPath, "shutdown"]
+        shutdownProcess.running = true
+      }
+      ready = false
+      phase = "app-running"
+    } else {
+      _intentionalStop = false
+      if (!daemonProcess.running) startDaemon()
+    }
+  }
+
   function refresh() {
     queueRpc("refresh", ["refresh"], "Searching for nearby devices", false)
   }
@@ -476,6 +509,7 @@ Item {
   Component.onDestruction: {
     _intentionalStop = true
     restartTimer.stop()
+    appWatchTimer.stop()
     if (rpcProcess.running) rpcProcess.running = false
     if (chooserProcess.running) chooserProcess.running = false
     if (daemonProcess.running) daemonProcess.running = false
@@ -535,6 +569,32 @@ Item {
     onTriggered: root.actionStatus = ""
   }
 
+  Timer {
+    id: appWatchTimer
+    interval: 700
+    repeat: true
+    running: true
+    triggeredOnStart: true
+    onTriggered: appProbe.running = true
+  }
+
+  Process {
+    id: appProbe
+    command: ["bash", "-c", "pgrep -x localsend >/dev/null 2>&1 || pgrep -x localsend_app >/dev/null 2>&1"]
+    running: false
+    stdout: StdioCollector { waitForEnd: true }
+    stderr: StdioCollector { waitForEnd: true }
+    onExited: function(exitCode) { root.handleAppProbe(exitCode === 0) }
+  }
+
+  Process {
+    id: shutdownProcess
+    command: []
+    running: false
+    stdout: StdioCollector { waitForEnd: true }
+    stderr: StdioCollector { waitForEnd: true }
+  }
+
   Process {
     id: daemonProcess
     command: []
@@ -560,7 +620,10 @@ Item {
       root.transfers = []
       root._rpcQueue = []
       root._snapshotQueued = false
-      if (root._intentionalStop) return
+      if (root._intentionalStop) {
+        if (root.appMode) root.phase = "app-running"
+        return
+      }
       var immediate = root._restartRequested
       root._restartRequested = false
       root.scheduleRestart(immediate)
@@ -593,20 +656,6 @@ Item {
     onLoaded: root.loadShellConfig(text())
     onLoadFailed: root.pluginSettings = ({})
     onFileChanged: reload()
-  }
-
-  // Alias continuity with the headless lsend CLI: when no shell.json alias is
-  // configured, use the same "Great Strawberry"-style name the CLI stores.
-  FileView {
-    id: aliasTxtFile
-    path: root.aliasTxtPath
-    watchChanges: false
-    printErrors: false
-    onLoaded: {
-      var value = String(text() || "").trim().split("\n")[0].trim()
-      root.aliasTxtAlias = value.substring(0, 128)
-    }
-    onLoadFailed: root.aliasTxtAlias = ""
   }
 
   FileView {

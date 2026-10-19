@@ -233,7 +233,9 @@ Panel {
               : "LocalSend"
             meta: root.localsend && root.localsend.ready
               ? "RECEIVER READY"
-              : (root.localsend ? String(root.localsend.phase || "STARTING") : "STARTING")
+              : (root.localsend && root.localsend.appMode
+                ? "APP RUNNING"
+                : (root.localsend ? String(root.localsend.phase || "STARTING").toUpperCase() : "STARTING"))
             detail: root.localsend ? root.localsend.onlineDeviceCount + " NEARBY" : "0 NEARBY"
             foreground: root.foreground
             fontFamily: root.fontFamily
@@ -267,6 +269,17 @@ Panel {
               ? (root.localsend.actionStatus !== "" ? root.localsend.actionStatus : root.localsend.lastError)
               : ""
             color: root.localsend && root.localsend.actionStatus !== "" ? root.dim : root.urgent
+            font.family: root.fontFamily
+            font.pixelSize: Style.font.bodySmall
+            wrapMode: Text.WordWrap
+            textFormat: Text.PlainText
+          }
+
+          Text {
+            visible: root.localsend && root.localsend.appMode
+            width: parent.width
+            text: "The LocalSend app is running — it owns port 53317. This receiver hands off to it and resumes when the app closes."
+            color: root.dim
             font.family: root.fontFamily
             font.pixelSize: Style.font.bodySmall
             wrapMode: Text.WordWrap
