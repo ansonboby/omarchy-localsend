@@ -13,6 +13,10 @@ mkdir -p "$STATE"
 
 DIR="$HOME/Downloads"
 EXTRA=()
+# lsend persists a required pin to ~/.config/lsend/receive_pin, and its
+# lookup order is --pin > that file > env — so a pin once tested sticks
+# even when the plugin says PIN off. Clear it unless the conf asks for one.
+PINFILE="$HOME/.config/lsend/receive_pin"
 
 strip() { printf '%s' "$2" | sed "s/^$1=//; s/^'//; s/'$//"; }
 
@@ -25,6 +29,12 @@ if [ -f "$CFG" ]; then
       pin=*) pin=$(strip pin "$line"); [ -n "$pin" ] && EXTRA+=(--pin "$pin") ;;
     esac
   done < "$CFG"
+fi
+
+if [ ${#EXTRA[@]} -eq 0 ]; then
+  rm -f "$PINFILE"
+else
+  printf '%s\n' "$pin" > "$PINFILE"
 fi
 
 mkdir -p "$DIR"

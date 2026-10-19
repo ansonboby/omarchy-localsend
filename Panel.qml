@@ -77,7 +77,9 @@ Panel {
 
   // Receiver
   property bool receiving: false
-  property bool receiveBusy: false
+  // In-flight receive session built from the journal event stream:
+  // transfer_started -> file_saved* -> transfer_complete|failed|cancelled.
+  property var recvSession: null // {sender, count, names}  property bool receiveBusy: false
   property bool startReceiverAfterProbe: false
   // Queued user intent (newest wins) applied as soon as the single-shot
   // ctl/probe slots free up — never swallow a toggle click.
@@ -481,7 +483,7 @@ Panel {
   function receiveNameOf(obj) {
     var name = extractString(obj, ["name", "filename", "file", "path"])
     if (name !== "") return baseName(name)
-    return String(JSON.stringify(obj)).slice(0, 90)
+    return "Files"
   }
 
   function handleReceiveLine(line) {
@@ -491,14 +493,71 @@ Panel {
     try { obj = JSON.parse(text) } catch (err) { return }
     if (!obj || typeof obj !== "object") return
     var kind = String(obj.event || obj.type || obj.kind || obj.command || "").toLowerCase()
+
+    // lsend receive emits a clean session spine. Track it explicitly: one
+    // history entry + one notification per transfer, not per file or per
+    // intermediate event.
+    if (kind === "ready") {
+      recvSession = null
+      return
+    }
+    if (kind === "transfer_started") {
+      recvSession = {
+        sender: String(obj.sender_alias || ""),
+        count: Number(obj.file_count || 1),
+        names: []
+      }
+      return
+    }
+    if (kind === "file_saved") {
+      var savedName = baseName(String(obj.file_name || obj.path || "file"))
+      if (recvSession !== null && typeof recvSession === "object")
+        recvSession.names.push(savedName)
+      else
+        addHistory("in", savedName, "unknown", true)
+      return
+    }
+    if (kind === "transfer_complete" || kind === "transfer_finished_with_errors" || kind === "transfer_cancelled") {
+      var s = recvSession
+      var peer = (s && typeof s === "object") ? s.sender : ""
+      var name = (s && typeof s === "object" && Array.isArray(s.names) && s.names.length > 1)
+        ? (s.names.length + " files")
+        : (s && typeof s === "object" && Array.isArray(s.names) && s.names.length === 1 ? s.names[0] : "Files")
+      var failed = kind !== "transfer_complete"
+      addHistory("in", name, peer, !failed, s && typeof s === "object" ? s.count : undefined)
+      var withPeer = peer !== "" ? " from " + peer : ""
+      if (kind === "transfer_complete")
+        notify("LocalSend: received", name + withPeer)
+      else if (kind === "transfer_finished_with_errors")
+        notify("LocalSend: receive finished with errors", name + withPeer)
+      else
+        notify("LocalSend: transfer cancelled", name + withPeer)
+      recvSession = null
+      return
+    }
+
+    // Fallback heuristics for event shapes that are not the session spine.
     var ok = obj.ok !== false
-    var peer = receivePeerOf(obj)
+    var peerFallback = receivePeerOf(obj)
 
     var failure = !ok || kind.indexOf("fail") >= 0 || kind.indexOf("error") >= 0 ||
       kind.indexOf("declin") >= 0 || kind.indexOf("cancel") >= 0
     if (failure) {
-      addHistory("in", receiveNameOf(obj), peer, false)
-      notify("LocalSend: receive failed", receiveNameOf(obj))
+      // Start-up/runtime infrastructure noise (port_in_use races etc.) is
+      // not a transfer: no peer, no file. Keep it out of history and off
+      // the user's notifications — otherwise every app<->daemon handoff
+      // reads as "receive failed".
+      var code = String(obj.code || "").toLowerCase()
+      var infraNoise = code.indexOf("port") >= 0 || code.indexOf("bind") >= 0 ||
+        code.indexOf("listen") >= 0
+      var transferish = peerFallback !== "" || kind.indexOf("transfer") >= 0 ||
+        kind.indexOf("download") >= 0 || kind.indexOf("upload") >= 0
+      if (infraNoise || !transferish) {
+        console.log("localsend: receiver event not transfer-shaped, ignored (code=" + code + ")")
+        return
+      }
+      addHistory("in", receiveNameOf(obj), peerFallback, false)
+      notify("LocalSend: receive failed", receiveNameOf(obj) + (peerFallback !== "" ? " from " + peerFallback : ""))
       return
     }
 
@@ -507,8 +566,8 @@ Panel {
     if (!complete && !saved) return
     var name = receiveNameOf(obj)
     if (complete) {
-      addHistory("in", name, peer, true)
-      notify("LocalSend: received", name + " from " + (peer !== "" ? peer : "a nearby device"))
+      addHistory("in", name, peerFallback, true)
+      notify("LocalSend: received", name + " from " + (peerFallback !== "" ? peerFallback : "a nearby device"))
     }
   }
 
@@ -771,7 +830,16 @@ Panel {
       "killed=0\n" +
       "if pgrep -x localsend >/dev/null 2>&1; then pkill -x localsend; killed=1; fi\n" +
       "if pgrep -x localsend_app >/dev/null 2>&1; then pkill -x localsend_app; killed=1; fi\n" +
-      "if [ \"$killed\" = \"1\" ]; then sleep 0.6; echo killed; fi\n" +
+      "if [ \"$killed\" = \"1\" ]; then\n" +
+      "  echo killed\n" +
+      "  # A dying Flutter app can hold 53317 for seconds after pkill; the\n" +
+      "  # receiver must start against a genuinely free port or systemd's\n" +
+      "  # on-failure restarts spit port_in_use noise into the journal.\n" +
+      "  for _ in $(seq 1 30); do\n" +
+      "    if ! ss -tln 2>/dev/null | grep -q ':53317 '; then break; fi\n" +
+      "    sleep 0.5\n" +
+      "  done\n" +
+      "fi\n" +
       "true\n"]
     onExited: {
       try {

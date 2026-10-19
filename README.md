@@ -84,6 +84,7 @@ Bind them to keys in your Hyprland config if the mode deserves a hotkey.
 ## Notes
 
 - Protocol: LocalSend v2, spoken by `lsend` (lsendapp/lsend-cli). Official app can send to this receiver and this can send to the official app on other devices.
+- PIN discipline: `lsend` persists a required PIN to `~/.config/lsend/receive_pin` and its lookup order is --pin > that file > env. The receiver wrapper clears that file whenever the plugin has PIN off, so a PIN once tested never silently sticks; when PIN is on, both are kept in sync on every (re)start.
 - Local-first: everything stays inside your plugin dir + `~/.local/state/localsend-menu/`.
 
 ## Credits
