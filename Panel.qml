@@ -227,6 +227,19 @@ Panel {
     return "No device selected"
   }
 
+  // Hero meta line: caps, dot separators, one summary glance.
+  function heroMetaLine() {
+    var lines = []
+    lines.push(devicesModel.length === 1 ? "1 DEVICE" : devicesModel.length + " DEVICES")
+    if (transferActive) lines.push("SENDING")
+    else if (receiving) lines.push("RECEIVE ON")
+    else if (scanState === "scanning") lines.push("SCANNING")
+    else lines.push("RECEIVE OFF")
+    var recent = historyModel.length > 0
+    if (recent) lines.push(String(historyModel.length) + " RECENT")
+    return lines.join("  ·  ")
+  }
+
   function pickPaths(mode) {
     if (selectedIp === "") { nudgeSelect(); return }
     if (pickProc.running) return
@@ -527,11 +540,6 @@ Panel {
     if (scanState !== "scanning" && Array.isArray(devicesModel) && devicesModel.length === 0) startScan()
   }
 
-  onTransferActiveChanged: {
-    // A stopped opacity pulse must not leave the dot half-faded.
-    if (!transferActive) statusDot.opacity = 1.0
-  }
-
   // --- bar root sizing ----------------------------------------------------
 
   implicitWidth: button.implicitWidth
@@ -767,32 +775,12 @@ Panel {
         source: Util.fileUrl(root.iconImageSetting)
         mipmap: true
         fillMode: Image.PreserveAspectFit
+        // Design language: state lives in glyph intensity, never in a dot —
+        // bright while receiving or sending, dim otherwise (dropbox pattern).
+        opacity: root.receiving || root.transferActive ? 1.0 : 0.6
+        Behavior on opacity { NumberAnimation { duration: 200 } }
         onStatusChanged: if (status === Image.Error || status === Image.Null) root.iconImageLoadFailed = true
       }
-    }
-  }
-
-  // Receiver / transfer status dot. Always visible: dim when off, accent
-  // while receiving, pulsing while a transfer is queued or in flight.
-  Rectangle {
-    id: statusDot
-    anchors.top: button.top
-    anchors.right: button.right
-    anchors.topMargin: Style.space(2)
-    anchors.rightMargin: Style.space(2)
-    width: Style.space(8)
-    height: Style.space(8)
-    radius: Style.space(4)
-    visible: true
-    color: root.transferActive
-      ? root.accent
-      : (root.receiving ? root.accent : Util.alpha(Commons.Color.muted, 0.5))
-
-    SequentialAnimation on opacity {
-      running: root.transferActive
-      loops: Animation.Infinite
-      NumberAnimation { from: 1.0; to: 0.25; duration: 500; easing.type: Easing.OutQuad }
-      NumberAnimation { from: 0.25; to: 1.0; duration: 500; easing.type: Easing.InQuad }
     }
   }
 
@@ -838,54 +826,44 @@ Panel {
           spacing: Style.space(10)
 
           // --- header -------------------------------------------------------
+          // PanelHero: tinted logo, a title that names the state in plain
+          // words, a caps meta line with dot separators, and one trailing
+          // control (refresh) per the design language.
 
-          Item {
-            id: headerRow
+          PanelHero {
+            id: hero
             width: parent.width
-            height: Style.space(28)
-
-            Row {
-              anchors.left: parent.left
-              anchors.verticalCenter: parent.verticalCenter
-              spacing: Style.space(8)
-
+            foreground: root.foreground
+            fontFamily: root.fontFamily
+            title: root.transferActive
+              ? "Sending to " + root.activeSend.peer
+              : (root.receiving ? "Receiving is on" : "LocalSend")
+            meta: root.heroMetaLine()
+            detail: root.selectedIp === ""
+              ? (root.saveDir.startsWith(root.home) ? "~" + root.saveDir.slice(root.home.length) : root.saveDir)
+              : "to " + root.selectedAlias
+            iconOpacity: root.receiving || root.transferActive ? 1.0 : 0.85
+            iconComponent: Component {
               Image {
-                anchors.verticalCenter: parent.verticalCenter
+                width: Style.font.display
+                height: Style.font.display
                 visible: root.hasIconImage
-                width: Style.space(22)
-                height: Style.space(22)
                 source: Util.fileUrl(root.iconImageSetting)
                 mipmap: true
                 fillMode: Image.PreserveAspectFit
                 onStatusChanged: if (status === Image.Error || status === Image.Null) root.iconImageLoadFailed = true
-              }
-
-              Text {
-                anchors.verticalCenter: parent.verticalCenter
-                visible: !root.hasIconImage
-                textFormat: Text.PlainText
-                text: "󰒊"
-                color: root.foreground
-                font.family: root.fontFamily
-                font.pixelSize: Style.font.heading
-              }
-
-              Text {
-                anchors.verticalCenter: parent.verticalCenter
-                textFormat: Text.PlainText
-                text: "LocalSend"
-                color: root.foreground
-                font.family: root.fontFamily
-                font.pixelSize: Style.font.title
-                font.bold: true
+                Text {
+                  anchors.centerIn: parent
+                  visible: !root.hasIconImage
+                  textFormat: Text.PlainText
+                  text: "󰒊"
+                  color: root.foreground
+                  font.family: root.fontFamily
+                  font.pixelSize: Style.font.heading
+                }
               }
             }
-
-            Row {
-              anchors.right: parent.right
-              anchors.verticalCenter: parent.verticalCenter
-              spacing: Style.space(2)
-
+            trailingControl: Component {
               PanelActionButton {
                 iconText: "󰑐"
                 tooltipText: "Re-scan devices"
@@ -893,22 +871,6 @@ Panel {
                 fontFamily: root.fontFamily
                 enabled: !scanProc.running
                 onClicked: root.startScan()
-              }
-
-              PanelActionButton {
-                iconText: "󰏌"
-                tooltipText: "Open full LocalSend app"
-                foreground: root.foreground
-                fontFamily: root.fontFamily
-                onClicked: root.runScript(root.openAppScript)
-              }
-
-              PanelActionButton {
-                iconText: "󰅙"
-                tooltipText: "Close"
-                foreground: root.foreground
-                fontFamily: root.fontFamily
-                onClicked: root.close()
               }
             }
           }
@@ -929,7 +891,7 @@ Panel {
 
           PanelSectionHeader {
             id: devicesHeader
-            text: root.flashActive ? "DEVICES — SELECT A DEVICE FIRST" : "DEVICES"
+            text: root.flashActive ? "PICK A DEVICE — THEN SEND" : "DEVICES ON THE NETWORK"
             foreground: root.flashActive ? root.urgent : root.foreground
             fontFamily: root.fontFamily
           }
@@ -986,7 +948,7 @@ Panel {
           // --- send ---------------------------------------------------------
 
           PanelSectionHeader {
-            text: "SEND"
+            text: "SEND TO " + root.targetPretty().toUpperCase()
             foreground: root.foreground
             fontFamily: root.fontFamily
           }
@@ -1094,7 +1056,7 @@ Panel {
           // --- receiving ----------------------------------------------------
 
           PanelSectionHeader {
-            text: "RECEIVING"
+            text: "RECEIVE MODE"
             foreground: root.foreground
             fontFamily: root.fontFamily
           }
@@ -1137,7 +1099,7 @@ Panel {
 
           PanelSectionHeader {
             id: recentHeader
-            text: "RECENT"
+            text: "RECENT TRANSFERS"
             foreground: root.foreground
             fontFamily: root.fontFamily
           }
@@ -1186,6 +1148,19 @@ Panel {
             foreground: root.foreground
             fontFamily: root.fontFamily
             onClicked: root.runScript(root.openAppScript)
+          }
+
+          // Keyboard footer: muted caption naming the keys the panel honors.
+          PanelSeparator {}
+
+          Text {
+            width: parent.width
+            textFormat: Text.PlainText
+            text: "esc close  ·  enter send message  ·  o open app"
+            color: root.dim
+            font.family: root.fontFamily
+            font.pixelSize: Style.font.caption
+            horizontalAlignment: Text.AlignHCenter
           }
 
           Text {
@@ -1287,9 +1262,8 @@ Panel {
     }
   }
 
-  component HistoryRow: Rectangle {
+  component HistoryRow: CursorSurface {
     id: historyRow
-    property bool hasCursor: false
     required property var modelData
     required property int index
 
@@ -1297,9 +1271,8 @@ Panel {
     readonly property bool ok: modelData.ok !== false
 
     width: recentList.width
-    height: Math.max(directionGlyph.implicitHeight, historyContent.implicitHeight, historyTime.implicitHeight) + Style.space(6)
-    color: "transparent"
-    radius: Style.cornerRadius
+    implicitHeight: Math.max(directionGlyph.implicitHeight, historyContent.implicitHeight, historyTime.implicitHeight) + Style.space(6)
+    foreground: root.foreground
 
     MouseArea {
       anchors.fill: parent
