@@ -1,94 +1,120 @@
-# omarchy-localsend
+# LocalSend for Omarchy
 
-A LocalSend mini-app for the Omarchy bar (Quickshell). One button, one menu: pick a nearby device, send files, folders, keystrokes-free clipboard and text messages, toggle receive mode, all without leaving the bar.
+A native Omarchy Shell integration for [LocalSend](https://localsend.org/) that runs entirely in the background. Discover devices, choose files or clipboard text, review incoming requests, and track transfers without opening the LocalSend GUI.
 
-![popup preview](preview.png)
+![LocalSend panel showing a nearby device](preview.png)
 
-## What it does
+## Features
 
-- **Bar button** — the LocalSend logo, with a status dot: accent while receiving or when a transfer is in flight, dim otherwise. Left-click opens the menu; right-click opens the full LocalSend GUI app.
-- **Device discovery** — automatic on menu open (UDP multicast via `lsend scan --json`), again refreshable; rows show alias + IP. Your last chosen device is remembered and re-selected when it reappears.
-- **Send** — files (multi-select), whole folders, clipboard text, or a typed message (Enter to send), to the selected device. Queued sends, per-transfer success/failure verdicts, desktop notifications via `omarchy-notification-send`.
-- **Receive mode** — toggle inside the menu starts a systemd-user receiver (`lsend receive --json --dir <saveDir>`), auto-accepting into your configured folder (default `~/Downloads`), optional numeric PIN (PIN mode, as in the app). Incoming transfers are watched via `journalctl --user -f` on the unit and fire notifications + history entries. Handles the GUI-app port conflict (pings you, hands off port 53317).
-- **Recent transfers** — the last few sends/receives with direction, peer, relative time, failure tint; persisted to `~/.local/state/localsend-menu/history.json`.
-- **Full app shortcut** — footer row opens/focuses the real LocalSend app for anything else (pairing, trust, reluctant settings).
+- Theme-controlled symbolic status-bar icon
+- Official colored LocalSend icon inside the panel
+- Nearby-device discovery over LocalSend protocol v2.2
+- File, folder, and clipboard-text sharing
+- Explicit Accept and Decline controls for incoming requests
+- Desktop notifications for new requests
+- Live transfer progress, history, errors, and cancellation
+- Incoming clipboard text copied with `wl-copy`
+- Incoming files saved to the XDG Downloads directory
+- TLS certificate pinning and a private Unix management socket
+- No LocalSend GUI, TUI, or tray process
 
 ## Install
 
-### Dependencies
+Quit any running LocalSend GUI first because both receivers use port `53317`, then run:
 
 ```bash
-# the headless LocalSend CLI (protocol v2, official-compatible)
-curl -fsSL https://github.com/lsendapp/lsend-cli/releases/latest/download/lsend-x86_64-unknown-linux-musl.tar.gz \
-  | tar xz && install -m 755 lsend ~/.local/bin/lsend
-
-# the GUI app itself (for the full-app shortcut) — pacman or your favorite
-omarchy pkg add localsend
+omarchy plugin add https://github.com/cryptobredda/omarchy-localsend --enable --yes
 ```
 
-### Plugin
+The plugin appears in the right side of the bar by default. On first use, its reviewed launcher downloads the checksum-pinned x86-64 controller from the repository's attested GitHub release. Rust is not required for installation, and the verified controller is reused while offline.
+
+Runtime requirements:
+
+- Omarchy 4.0 or newer, which provides the shell, file picker, and notification helpers
+- x86-64 Linux with glibc 2.39 or newer
+- `curl` for the initial HTTPS artifact download
+- `coreutils` for the bounded download and size/SHA-256 verification
+- `util-linux` for `setpriv`
+- `wl-clipboard` for `wl-copy` and `wl-paste`
+- Local network access to TCP and UDP port `53317`
+
+The LocalSend application is not required. This plugin does not modify user configuration.
+
+To update later:
 
 ```bash
-omarchy plugin add https://github.com/ansonboby/omarchy-localsend --enable --yes
+omarchy plugin update bredda.localsend --yes
 ```
 
-Or drop the dir into `~/.config/omarchy/plugins/anson.localsend/` and add `{ "id": "anson.localsend" }` to `shell.json`'s bar layout.
-
-### Receiver unit (optional, for receive mode)
+## Remove
 
 ```bash
-cp omarchy-localsend-receiver.service ~/.config/systemd/user/
-systemctl --user daemon-reload
+omarchy plugin remove bredda.localsend --yes
 ```
 
-The panel manages start/stop itself; the unit just needs to exist.
+Removal stops the receiver and removes the plugin code. The persistent identity is intentionally retained so reinstalling does not change the device fingerprint. To reset that identity too, remove `$XDG_STATE_HOME/omarchy/localsend-controller`, or `~/.local/state/omarchy/localsend-controller` when `XDG_STATE_HOME` is unset.
 
-## Settings (shell.json inline, or the widget settings UI)
+## Use
 
-| Key | Default | Meaning |
-|---|---|---|
-| `saveDir` | `~/Downloads` | where received files land |
-| `requirePin` | false | senders must quote the PIN |
-| `pin` | — | numeric PIN, only with `requirePin` |
-| `scanTimeoutMs` | 6000 | device scan window |
-| `iconImage` | stock logo | bar button image (empty → glyph) |
-| `iconGlyph` | — | nerd-font glyph fallback |
-| `historyLimit` | 50 | transfer history cap |
-| `historyLimit` | 50 | transfer history cap |
+1. Open the LocalSend bar panel.
+2. Choose **Files**, **Folder**, or **Clipboard**.
+3. Select a nearby device.
+4. Accept or decline incoming requests directly in the panel.
 
-## One port, two owners
+Keyboard shortcuts while the panel is open:
 
-The headless receiver daemon and the GUI app both bind UDP/TCP 53317 — they
-trade the port, they never share it:
+| Key | Action |
+| --- | --- |
+| `r` | Refresh nearby devices |
+| `f` | Choose files |
+| `d` | Choose a folder |
+| `c` | Select clipboard text |
 
-- **Receive on** while the GUI app runs → the plugin closes the app (with a
-  notification) and starts the daemon.
-- **Open full app** (footer row, right-click the bar icon, or `o` in the
-  menu) while receiving → the plugin stops the daemon first (with a
-  notification), so the app never sees OS error 98 ("address already in
-  use") and starts online.
+The receiver uses the alias from an existing LocalSend installation when available. Otherwise, it uses the machine hostname.
 
-The switch tells you this in place: "opening the GUI app pauses this".
+## Runtime Data
 
-## IPC / keybinding
+- Management socket: `$XDG_RUNTIME_DIR/omarchy-localsend.sock`
+- Persistent identity: `$XDG_STATE_HOME/omarchy/localsend-controller/identity.pem`
+- Verified controller cache: `$XDG_CACHE_HOME/omarchy-localsend/controllers/`
+- Incoming files: XDG Downloads directory, normally `~/Downloads`
 
+The socket and identity are created with mode `0600`. Incoming transfers are never accepted automatically.
+
+## Build From Source
+
+Requirements:
+
+- Current stable Rust toolchain
+- `qmllint` for QML validation
+- Omarchy for manifest validation and runtime testing
+
+Build the controller and SHA-256 checksum into `dist/`:
+
+```bash
+./scripts/build-controller
 ```
-quickshell ipc -p /usr/share/omarchy/shell call anson.localsend receiveOn
-quickshell ipc -p /usr/share/omarchy/shell call anson.localsend receiveOff
-quickshell ipc -p /usr/share/omarchy/shell call anson.localsend openApp
-quickshell ipc -p /usr/share/omarchy/shell call anson.localsend open|toggle
+
+Run all local checks:
+
+```bash
+./scripts/check
 ```
 
-Bind them to keys in your Hyprland config if the mode deserves a hotkey.
+Cargo output is kept under `$XDG_CACHE_HOME/omarchy-localsend/target` by default, outside the plugin tree. This avoids triggering Omarchy's recursive plugin watcher for every Cargo artifact.
 
-## Notes
+## Release Verification
 
-- Protocol: LocalSend v2, spoken by `lsend` (lsendapp/lsend-cli). Official app can send to this receiver and this can send to the official app on other devices.
-- PIN discipline: `lsend` persists a required PIN to `~/.config/lsend/receive_pin` and its lookup order is --pin > that file > env. The receiver wrapper clears that file whenever the plugin has PIN off, so a PIN once tested never silently sticks; when PIN is on, both are kept in sync on every (re)start.
-- Local-first: everything stays inside your plugin dir + `~/.local/state/localsend-menu/`.
+No compiled executable is committed to this repository. `bin/localsend-controller` is a readable Bash launcher, and `controller-release.env` pins one release tag, asset name, expected byte size, source commit, and SHA-256 digest. The launcher applies that byte ceiling while downloading, then verifies the exact size and digest before every execution and rejects modified or unexpected artifacts.
 
-## Credits
+`.github/workflows/release-controller.yml` builds releases from tagged source using Rust 1.97.1 and actions pinned by full commit SHA. It publishes the checksum and a GitHub artifact provenance attestation. The regular CI workflow independently downloads that exact release, verifies its checksum and attestation against the expected workflow, tag, and source commit, and only then executes it.
 
-- Built on the [Omarchy shell](https://omarchy.org) plugin/Ui kit (`qs.Ui` panels, `Quickshell.Io`)
-- [lsendapp/lsend-cli](https://github.com/lsendapp/lsend-cli) for the headless protocol v2 client
-- [LocalSend](https://localsend.org) — the app this wraps
+## Architecture
+
+`service/Receiver.qml` supervises one foreground controller process for the shell session. The launcher at `bin/localsend-controller` resolves the reviewed release and replaces itself with the verified executable. `widget/LocalSendBar.qml` is a thin per-monitor view that communicates with the service through short JSON RPC commands.
+
+The Rust controller uses LocalSend's official core library at pinned commit `af0416be50770a97760f7070684bc667b759a15c`. It provides discovery, HTTPS transport, transfer decisions, progress, and cancellation without wrapping the interactive LocalSend CLI.
+
+## License
+
+MIT. LocalSend and the Rust dependencies retain their respective licenses.

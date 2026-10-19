@@ -1,0 +1,5 @@
+/controller/target/
+/.build/
+/dist/
+*.log
+.DS_Store
