@@ -958,8 +958,11 @@ Panel {
             spacing: Style.space(6)
 
             // Target chip: shows the current send target, click to re-scan.
+            // Hidden until a device is chosen — the empty state is loud
+            // enough in the section header; duplication would be noise.
             CursorSurface {
               id: targetChip
+              visible: root.selectedIp !== ""
               width: parent.width
               implicitHeight: Style.space(34)
               foreground: root.foreground
