@@ -73,6 +73,6 @@ Closing/relaunching the shell re-runs only this headless receiver.
 ## Development
 
 - Controller: Rust under `controller/` (pinned to the official LocalSend core, protocol v2.2), release-built via GitHub Actions and pinned with size + sha256 in `controller-release.env`; the runtime launcher re-verifies both before every launch.
-- QML layer: `service/Receiver.qml` supervises one controller daemon per shell session over the private socket; `widget/LocalSendBar.qml` is the panel + bar icon; both follow the Omarchy plugin design language.
+- QML layer: `service/Receiver.qml` supervises one controller daemon per shell session over the private socket; `BarWidget.qml` is the bar icon and `Panel.qml` the panel; all follow the Omarchy plugin design language.
 
 Build the controller locally (needs the Rust toolchain): `scripts/build-controller`. Run everything: `scripts/check`. Smoke-test the receive/decline path end-to-end (daemon running): `scripts/test-ipc`.

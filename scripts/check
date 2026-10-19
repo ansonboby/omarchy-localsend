@@ -15,8 +15,9 @@ CARGO_TARGET_DIR="$target_dir" cargo build --manifest-path "$manifest" --locked 
 if command -v qmllint >/dev/null 2>&1; then
   qmllint \
     "$repo_root/service/Receiver.qml" \
-    "$repo_root/widget/LocalSendIcon.qml" \
-    "$repo_root/widget/LocalSendBar.qml"
+    "$repo_root/BarWidget.qml" \
+    "$repo_root/Panel.qml" \
+    "$repo_root/LocalSendIcon.qml"
 fi
 
 if command -v omarchy >/dev/null 2>&1; then

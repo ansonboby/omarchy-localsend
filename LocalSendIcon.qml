@@ -13,7 +13,7 @@ Item {
   Image {
     id: sourceImage
     anchors.fill: parent
-    source: Qt.resolvedUrl("../assets/localsend-symbolic.svg")
+    source: Qt.resolvedUrl("./assets/localsend-symbolic.svg")
     fillMode: Image.PreserveAspectFit
     visible: false
     layer.enabled: true

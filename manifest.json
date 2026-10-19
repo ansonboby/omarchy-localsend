@@ -13,7 +13,7 @@
   "keepLoaded": true,
   "entryPoints": {
     "service": "service/Receiver.qml",
-    "barWidget": "widget/LocalSendBar.qml"
+    "barWidget": "BarWidget.qml"
   },
   "barWidget": {
     "displayName": "LocalSend",

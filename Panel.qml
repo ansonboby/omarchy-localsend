@@ -13,13 +13,13 @@ Panel {
   ipcTarget: "anson.localsend"
   manageIpc: false
 
+  property var anchorItem: null
+  property var hostWidget: null
+
   readonly property var localsend: bar && bar.shell ? bar.shell.serviceFor("anson.localsend") : null
   readonly property color foreground: bar ? bar.foreground : Color.foreground
   readonly property color urgent: bar ? bar.urgent : Color.urgent
   readonly property color dim: Qt.darker(foreground, 1.55)
-  readonly property color barIconColor: localsend && localsend.incoming
-    ? urgent
-    : (localsend && localsend.ready ? barForeground : Qt.darker(barForeground, 1.65))
   readonly property string fontFamily: bar ? bar.fontFamily : Style.font.family
   readonly property bool payloadReady: localsend && localsend.payloadKind !== ""
   readonly property var nearbyDevices: {
@@ -137,9 +137,6 @@ Panel {
     return stateLabel(value)
   }
 
-  implicitWidth: button.implicitWidth
-  implicitHeight: button.implicitHeight
-
   onOpenedChanged: if (opened) {
     if (localsend) localsend.queueSnapshot()
     Qt.callLater(function() { keyCatcher.forceActiveFocus() })
@@ -156,40 +153,10 @@ Panel {
     function clearHistory() { if (root.localsend) root.localsend.clearHistory(); return "ok" }
   }
 
-  BarIconButton {
-    id: button
-    anchors.fill: parent
-    bar: root.bar
-    iconComponent: Component {
-      Item {
-        LocalSendIcon {
-          id: symbolicIcon
-          anchors.centerIn: parent
-          iconSize: Style.space(12)
-          color: root.barIconColor
-
-          SequentialAnimation on opacity {
-            running: root.localsend && root.localsend.incoming !== null
-            loops: Animation.Infinite
-            NumberAnimation { to: 0.48; duration: 650; easing.type: Easing.InOutQuad }
-            NumberAnimation { to: 1.0; duration: 650; easing.type: Easing.InOutQuad }
-          }
-        }
-      }
-    }
-    onPressed: function(buttonCode) {
-      if (buttonCode === Qt.MiddleButton) {
-        if (root.localsend) root.localsend.refresh()
-      } else {
-        root.toggle()
-      }
-    }
-  }
-
   KeyboardPanel {
     id: panel
-    anchorItem: button
-    owner: root
+    anchorItem: root.anchorItem
+    owner: root.hostWidget || root
     bar: root.bar
     open: root.opened
     focusTarget: keyCatcher
