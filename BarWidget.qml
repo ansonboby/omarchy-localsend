@@ -55,7 +55,7 @@ BarWidget {
       Item {
         LocalSendIcon {
           anchors.centerIn: parent
-          iconSize: Style.space(12)
+          iconSize: Style.bar.iconCanvas
           color: root.barIconColor
 
           SequentialAnimation on opacity {
