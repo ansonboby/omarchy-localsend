@@ -13,7 +13,7 @@ Panel {
   ipcTarget: "anson.localsend"
   manageIpc: false
 
-  readonly property var localsend: bar?.shell?.serviceFor("anson.localsend")
+  readonly property var localsend: bar && bar.shell ? bar.shell.serviceFor("anson.localsend") : null
   readonly property color foreground: bar ? bar.foreground : Color.foreground
   readonly property color urgent: bar ? bar.urgent : Color.urgent
   readonly property color dim: Qt.darker(foreground, 1.55)
@@ -147,13 +147,13 @@ Panel {
 
   IpcHandler {
     target: root.ipcTarget
-    function open(): void { root.open() }
-    function close(): void { root.close() }
-    function show(): void { root.open() }
-    function hide(): void { root.close() }
-    function toggle(): void { root.toggle() }
-    function refresh(): string { if (root.localsend) root.localsend.refresh(); return "ok" }
-    function clearHistory(): string { if (root.localsend) root.localsend.clearHistory(); return "ok" }
+    function open() { root.open() }
+    function close() { root.close() }
+    function show() { root.open() }
+    function hide() { root.close() }
+    function toggle() { root.toggle() }
+    function refresh() { if (root.localsend) root.localsend.refresh(); return "ok" }
+    function clearHistory() { if (root.localsend) root.localsend.clearHistory(); return "ok" }
   }
 
   BarIconButton {
@@ -241,13 +241,9 @@ Panel {
             fontFamily: root.fontFamily
             iconOpacity: root.localsend && root.localsend.ready ? 1.0 : 0.48
             iconComponent: Component {
-              Image {
-                width: Style.space(54)
-                height: Style.space(54)
-                source: Quickshell.iconPath("localsend", true)
-                fillMode: Image.PreserveAspectFit
-                sourceSize.width: Math.round(width * Screen.devicePixelRatio)
-                sourceSize.height: Math.round(height * Screen.devicePixelRatio)
+              LocalSendIcon {
+                iconSize: Style.space(54)
+                color: root.foreground
               }
             }
             trailingControl: Component {
