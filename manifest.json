@@ -25,8 +25,7 @@
       "scanTimeoutMs": 6000,
       "iconGlyph": "",
       "iconImage": "/usr/share/icons/hicolor/512x512/apps/localsend.png",
-      "historyLimit": 50,
-      "openAppOnClose": false
+      "historyLimit": 50
     },
     "schema": [
       {
@@ -80,13 +79,6 @@
         "max": 200,
         "step": 10,
         "defaultValue": 50
-      },
-      {
-        "key": "openAppOnClose",
-        "type": "boolean",
-        "label": "Offer app shortcut in menu",
-        "defaultValue": true,
-        "description": "Show the 'Open full LocalSend app' row in the menu."
       }
     ]
   }

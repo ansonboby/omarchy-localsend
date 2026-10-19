@@ -54,7 +54,32 @@ The panel manages start/stop itself; the unit just needs to exist.
 | `iconImage` | stock logo | bar button image (empty → glyph) |
 | `iconGlyph` | — | nerd-font glyph fallback |
 | `historyLimit` | 50 | transfer history cap |
-| `openAppOnClose` | false | show the full-app footer row |
+| `historyLimit` | 50 | transfer history cap |
+
+## One port, two owners
+
+The headless receiver daemon and the GUI app both bind UDP/TCP 53317 — they
+trade the port, they never share it:
+
+- **Receive on** while the GUI app runs → the plugin closes the app (with a
+  notification) and starts the daemon.
+- **Open full app** (footer row, right-click the bar icon, or `o` in the
+  menu) while receiving → the plugin stops the daemon first (with a
+  notification), so the app never sees OS error 98 ("address already in
+  use") and starts online.
+
+The switch tells you this in place: "opening the GUI app pauses this".
+
+## IPC / keybinding
+
+```
+quickshell ipc -p /usr/share/omarchy/shell call anson.localsend receiveOn
+quickshell ipc -p /usr/share/omarchy/shell call anson.localsend receiveOff
+quickshell ipc -p /usr/share/omarchy/shell call anson.localsend openApp
+quickshell ipc -p /usr/share/omarchy/shell call anson.localsend open|toggle
+```
+
+Bind them to keys in your Hyprland config if the mode deserves a hotkey.
 
 ## Notes
 

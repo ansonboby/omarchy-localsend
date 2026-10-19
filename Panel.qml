@@ -19,6 +19,9 @@ Panel {
   id: root
   moduleName: "anson.localsend"
   ipcTarget: "anson.localsend"
+  // manageIpc: false so this panel owns the single IpcHandler the target
+  // permits (open/close/toggle plus the receive and app verbs below).
+  manageIpc: false
 
   // --- paths & settings ---------------------------------------------------
 
@@ -43,7 +46,6 @@ Panel {
     var parsed = parseInt(setting("historyLimit", 50), 10)
     return isNaN(parsed) ? 50 : Math.max(0, parsed)
   }
-  readonly property bool openAppOnClose: setting("openAppOnClose", false) !== false
 
   // Bar icon: prefer the logo image; fall back to the configured glyph
   // (or a plain two-letter mark) if the image is absent or fails to load.
@@ -77,6 +79,11 @@ Panel {
   property bool receiving: false
   property bool receiveBusy: false
   property bool startReceiverAfterProbe: false
+  // Queued user intent (newest wins) applied as soon as the single-shot
+  // ctl/probe slots free up — never swallow a toggle click.
+  property int pendingReceive: -1 // -1 none, 0 set off, 1 set on
+  // Set when a handoff stop should be followed by launching the GUI app.
+  property bool launchAppAfterCtl: false
   property string ctlVerb: ""
 
   // Transfers
@@ -240,6 +247,11 @@ Panel {
     return lines.join("  ·  ")
   }
 
+  // user-facing paths read best shortened to ~.
+  function tildePath(p) {
+    return p !== "" && p.startsWith(home) ? "~" + p.slice(home.length) : p
+  }
+
   function pickPaths(mode) {
     if (selectedIp === "") { nudgeSelect(); return }
     if (pickProc.running) return
@@ -376,7 +388,16 @@ Panel {
   }
 
   function toggleReceive(on) {
-    if (receiveBusy || ctlProc.running || appProbe.running) return
+    // A click can land while the previous systemctl run has not exited yet
+    // (the 5 s is-active poll shares the slot). Never swallow it: keep the
+    // newest intent and apply it the moment a slot frees.
+    if (receiveBusy || ctlProc.running || appProbe.running) {
+      pendingReceive = on ? 1 : 0
+      hint = "Applying receive change…"
+      hintTimer.restart()
+      return false
+    }
+    pendingReceive = -1
     receiveBusy = true
     if (on) {
       writeReceiverConf()
@@ -386,6 +407,27 @@ Panel {
     } else {
       runCtl("stop")
     }
+    return true
+  }
+
+  function flushPendingToggle() {
+    if (pendingReceive < 0) return
+    var want = pendingReceive === 1
+    if (toggleReceive(want)) pendingReceive = -1
+  }
+
+  // Single entry point for every "open the GUI app" path: footer button,
+  // right-click on the bar icon, and the o key. The app and the receiver
+  // daemon bind the same port, so an active daemon hands the port over
+  // before the app starts — otherwise the app lands on OS error 98
+  // ("address already in use") and shows itself offline.
+  function openFullApp() {
+    if (receiving) {
+      launchAppAfterCtl = true
+      runCtl("stop")
+      return
+    }
+    runScript(openAppScript)
   }
 
   function runCtl(verb) {
@@ -669,6 +711,20 @@ Panel {
     onTriggered: if (!journalProc.running) journalProc.running = true
   }
 
+  // IPC: standard panel verbs plus receive/app verbs so the mode is
+  // keybind- and script-reachable without clicking.
+  IpcHandler {
+    target: "anson.localsend"
+    function open() { root.open() }
+    function close() { root.close() }
+    function show() { root.open() }
+    function hide() { root.close() }
+    function toggle() { root.toggle() }
+    function receiveOn() { root.toggleReceive(true) }
+    function receiveOff() { root.toggleReceive(false) }
+    function openApp() { root.openFullApp() }
+  }
+
   // systemctl single-slot controller: start / stop / is-active.
   Process {
     id: ctlProc
@@ -688,9 +744,20 @@ Panel {
           root.notify("LocalSend: receiver failed", "systemctl --user restart " + root.receiverUnit + " exited with code " + exitCode)
       } else if (verb === "stop") {
         root.receiving = false
-        root.notify("LocalSend: receive mode off", "Receiver stopped")
+        if (root.launchAppAfterCtl) {
+          // Port handoff: daemon stopped because the user asked for the GUI app.
+          root.launchAppAfterCtl = false
+          root.notify("LocalSend: receive mode off", "Port handed to the GUI app — it will find nothing in use now")
+          Qt.callLater(root.runScript, root.openAppScript)
+        } else {
+          root.notify("LocalSend: receive mode off", "Receiver stopped")
+        }
       }
-      Qt.callLater(root.refreshReceiver)
+      // No self-rescheduling here: the 5 s refreshTimer is the steady-state
+      // poll, and a Qt.callLater refresh used to near-saturate the single
+      // ctl slot with checks — swallowing every real start/stop click.
+      if (root.pendingReceive >= 0)
+        Qt.callLater(root.flushPendingToggle)
     }
   }
 
@@ -707,14 +774,21 @@ Panel {
       "if [ \"$killed\" = \"1\" ]; then sleep 0.6; echo killed; fi\n" +
       "true\n"]
     onExited: {
-      var said = String(appProbeStdout.text || "").trim()
-      if (said === "killed")
-        root.notify("LocalSend app closed", "The GUI app was using the receive port.")
-      appProbeStdout.text = ""
-      if (root.startReceiverAfterProbe) {
-        root.startReceiverAfterProbe = false
-        root.runCtl("start")
-      } else {
+      try {
+        // StdioCollector.text is read-only in Quickshell 0.3 — never assign
+        // to it. A prior run's stray "killed" would at worst re-notify.
+        var said = String(appProbeStdout.text || "").trim()
+        if (said === "killed")
+          root.notify("LocalSend app closed", "The GUI app was using the receive port.")
+        if (root.startReceiverAfterProbe) {
+          root.startReceiverAfterProbe = false
+          root.runCtl("start")
+        } else {
+          root.receiveBusy = false
+          root.flushPendingToggle()
+        }
+      } catch (err) {
+        console.log("localsend: appProbe handler error: " + err)
         root.receiveBusy = false
       }
     }
@@ -758,7 +832,7 @@ Panel {
     text: root.hasIconImage ? "" : root.barGlyph
     iconComponent: root.hasIconImage ? imageComponent : null
     onPressed: function(buttonCode) {
-      if (buttonCode === Qt.RightButton) root.runScript(root.openAppScript)
+      if (buttonCode === Qt.RightButton) root.openFullApp()
       else root.toggle()
     }
   }
@@ -807,7 +881,7 @@ Panel {
       onTabRequested: function(direction) { root.switchPanel(direction) }
       onTextKey: function(t) {
         if (t === "r" || t === "R") root.startScan()
-        else if (t === "o" || t === "O") root.runScript(root.openAppScript)
+        else if (t === "o" || t === "O") root.openFullApp()
       }
 
       Flickable {
@@ -840,7 +914,7 @@ Panel {
               : (root.receiving ? "Receiving is on" : "LocalSend")
             meta: root.heroMetaLine()
             detail: root.selectedIp === ""
-              ? (root.saveDir.startsWith(root.home) ? "~" + root.saveDir.slice(root.home.length) : root.saveDir)
+              ? root.tildePath(root.saveDir)
               : "to " + root.selectedAlias
             iconOpacity: root.receiving || root.transferActive ? 1.0 : 0.85
             iconComponent: Component {
@@ -1068,24 +1142,15 @@ Panel {
             width: parent.width
             checked: root.receiving
             label: "Receive mode"
-            description: root.receiving
-              ? "Running · saving to " + root.saveDir + (root.requirePin && root.pin !== "" ? " · PIN required" : "")
-              : "Off · will save to " + root.saveDir + (root.requirePin && root.pin !== "" ? " · PIN required" : "")
+            description: root.receiveBusy
+              ? "Applying change…"
+              : (root.receiving
+                ? "On · files land in " + root.tildePath(root.saveDir) + (root.requirePin && root.pin !== "" ? " · PIN required" : "") + " · opening the GUI app pauses this"
+                : "Off · your phone can't send yet. The app and this daemon trade one port — both never run together")
             foreground: root.foreground
             accent: root.accent
             fontFamily: root.fontFamily
             onClicked: root.toggleReceive(!root.receiving)
-          }
-
-          Text {
-            visible: root.receiveBusy
-            width: parent.width
-            textFormat: Text.PlainText
-            text: "Updating receiver…"
-            color: root.dim
-            font.family: root.fontFamily
-            font.pixelSize: Style.font.caption
-            elide: Text.ElideRight
           }
 
           Button {
@@ -1144,13 +1209,13 @@ Panel {
           // --- footer -------------------------------------------------------
 
           Button {
-            visible: root.openAppOnClose
             width: parent.width
-            text: "Open full LocalSend app"
+            text: root.receiving ? "Open full app · pauses receive first" : "Open full LocalSend app"
             iconText: "󰏌"
+            tooltipText: root.receiving ? "The app needs the receive port — the daemon stops, then the app opens" : ""
             foreground: root.foreground
             fontFamily: root.fontFamily
-            onClicked: root.runScript(root.openAppScript)
+            onClicked: root.openFullApp()
           }
 
           // Keyboard footer: muted caption naming the keys the panel honors.
