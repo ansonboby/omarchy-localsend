@@ -1484,19 +1484,17 @@ async fn run_outgoing(
     ids.sort_by(|a, b| files[a].file_name.cmp(&files[b].file_name));
     for file_id in ids {
         if cancel.is_cancelled() {
-            if !by_peer.load(Ordering::Relaxed) {
-                let _ = tokio::time::timeout(
-                    Duration::from_secs(2),
-                    client.cancel(
-                        channel.protocol,
-                        &channel.host,
-                        channel.port,
-                        &response.session_id,
-                    ),
-                )
-                .await;
-            }
-            send_outgoing_finished(&internal, transfer_id, TransferState::Cancelled, None).await;
+            abort_outgoing(
+                by_peer.load(Ordering::Relaxed),
+                &client,
+                &channel,
+                &response.session_id,
+                &internal,
+                transfer_id,
+                TransferState::Cancelled,
+                None,
+            )
+            .await;
             return;
         }
         let _ = internal
@@ -1525,18 +1523,17 @@ async fn run_outgoing(
                         error: error.clone(),
                     })
                     .await;
-                let _ = tokio::time::timeout(
-                    Duration::from_secs(2),
-                    client.cancel(
-                        channel.protocol,
-                        &channel.host,
-                        channel.port,
-                        &response.session_id,
-                    ),
+                abort_outgoing(
+                    false,
+                    &client,
+                    &channel,
+                    &response.session_id,
+                    &internal,
+                    transfer_id,
+                    TransferState::Failed,
+                    Some(error),
                 )
                 .await;
-                send_outgoing_finished(&internal, transfer_id, TransferState::Failed, Some(error))
-                    .await;
                 return;
             }
         };
@@ -1566,20 +1563,17 @@ async fn run_outgoing(
                     .await;
             }
             Err(ClientError::Cancelled) => {
-                if !by_peer.load(Ordering::Relaxed) {
-                    let _ = tokio::time::timeout(
-                        Duration::from_secs(2),
-                        client.cancel(
-                            channel.protocol,
-                            &channel.host,
-                            channel.port,
-                            &response.session_id,
-                        ),
-                    )
-                    .await;
-                }
-                send_outgoing_finished(&internal, transfer_id, TransferState::Cancelled, None)
-                    .await;
+                abort_outgoing(
+                    by_peer.load(Ordering::Relaxed),
+                    &client,
+                    &channel,
+                    &response.session_id,
+                    &internal,
+                    transfer_id,
+                    TransferState::Cancelled,
+                    None,
+                )
+                .await;
                 return;
             }
             Err(_) => {
@@ -1594,18 +1588,17 @@ async fn run_outgoing(
                         error: error.clone(),
                     })
                     .await;
-                let _ = tokio::time::timeout(
-                    Duration::from_secs(2),
-                    client.cancel(
-                        channel.protocol,
-                        &channel.host,
-                        channel.port,
-                        &response.session_id,
-                    ),
+                abort_outgoing(
+                    false,
+                    &client,
+                    &channel,
+                    &response.session_id,
+                    &internal,
+                    transfer_id,
+                    TransferState::Failed,
+                    Some(error),
                 )
                 .await;
-                send_outgoing_finished(&internal, transfer_id, TransferState::Failed, Some(error))
-                    .await;
                 return;
             }
         }
@@ -1627,6 +1620,27 @@ async fn send_outgoing_finished(
             error,
         })
         .await;
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn abort_outgoing(
+    peer_cancelled: bool,
+    client: &LsHttpClientV2,
+    channel: &HttpChannel,
+    session_id: &str,
+    internal: &mpsc::Sender<InternalEvent>,
+    transfer_id: String,
+    state: TransferState,
+    error: Option<ApiError>,
+) {
+    if !peer_cancelled {
+        let _ = tokio::time::timeout(
+            Duration::from_secs(2),
+            client.cancel(channel.protocol, &channel.host, channel.port, session_id),
+        )
+        .await;
+    }
+    send_outgoing_finished(internal, transfer_id, state, error).await;
 }
 
 fn prepare_error(error: &ClientError) -> ApiError {
