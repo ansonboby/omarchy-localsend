@@ -934,6 +934,14 @@ impl Controller {
                 }
             }
             IncomingEnd::Finished => {
+                for file in &mut active.record.files {
+                    if file.state == TransferFileState::Queued {
+                        if let Some(path) = file.destination_path.as_deref() {
+                            let _ = fs::remove_file(path);
+                        }
+                        file.state = TransferFileState::Cancelled;
+                    }
+                }
                 if active
                     .record
                     .files
@@ -1766,7 +1774,6 @@ fn validate_incoming_offer(files: &HashMap<String, FileDto>) -> ApiResult<()> {
             format!("Incoming request must contain 1 to {MAX_INCOMING_FILES} files"),
         ));
     }
-    let mut total = 0u64;
     let mut metadata_bytes = 0usize;
     for (id, file) in files {
         validate_file_id(id)?;
@@ -1813,11 +1820,7 @@ fn validate_incoming_offer(files: &HashMap<String, FileDto>) -> ApiResult<()> {
                 "Incoming transfer metadata is too large",
             ));
         }
-        total = total
-            .checked_add(file.size)
-            .ok_or_else(|| ApiError::new("invalid_offer", "Incoming byte count overflowed"))?;
     }
-    let _ = total;
     Ok(())
 }
 

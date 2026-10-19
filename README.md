@@ -65,7 +65,7 @@ Incoming files land in the chosen destination with collision-safe names; incomin
 LocalSend traffic binds UDP+TCP `53317`. This plugin syncs with your installed LocalSend app instead of fighting it:
 
 - **Name**: the daemon follows the app's own device name (its `flutter.ls_alias`) unless you set `alias` in settings.
-- **Port**: a watcher polls every 0.7 s — when the LocalSend app launches, the daemon shuts down gracefully so the app owns the port (no "offline" error 98 in the app); when the app closes, the daemon takes the port back and re-reads the app's current name.
+- **Port**: a watcher polls every 0.7 s — when the LocalSend app launches, the receiver stops itself gracefully so the app owns the port, usually before the app finishes starting; if the app still comes up offline, close and reopen it once. When the app closes, the daemon takes the port back and re-reads the app's current name.
 - The panel shows `APP RUNNING` with a handoff note while the app owns the port; action tiles disable and history stays visible.
 
 Closing/relaunching the shell re-runs only this headless receiver.
@@ -75,4 +75,4 @@ Closing/relaunching the shell re-runs only this headless receiver.
 - Controller: Rust under `controller/` (pinned to the official LocalSend core, protocol v2.2), release-built via GitHub Actions and pinned with size + sha256 in `controller-release.env`; the runtime launcher re-verifies both before every launch.
 - QML layer: `service/Receiver.qml` supervises one controller daemon per shell session over the private socket; `widget/LocalSendBar.qml` is the panel + bar icon; both follow the Omarchy plugin design language.
 
-Build the controller locally (needs the Rust toolchain): `scripts/build-controller`. Run everything: `scripts/check`.
+Build the controller locally (needs the Rust toolchain): `scripts/build-controller`. Run everything: `scripts/check`. Smoke-test the receive/decline path end-to-end (daemon running): `scripts/test-ipc`.

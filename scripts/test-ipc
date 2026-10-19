@@ -1,0 +1,109 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+repo_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
+controller="$repo_root/bin/localsend-controller"
+
+fail() { echo "test-ipc: FAIL: $*" >&2; exit 1; }
+
+# Poll snapshot every second until a python expression over it is true.
+wait_for() { # <expr> <seconds>
+  local deadline=$((SECONDS + $2))
+  until "$controller" snapshot 2>/dev/null | python3 -c "
+import sys, json
+try:
+    ok = bool(eval(sys.argv[1], {}, {'d': json.load(sys.stdin)}))
+except Exception:
+    ok = False
+sys.exit(0 if ok else 1)
+" "$1"; do
+    ((SECONDS <= deadline)) || return 1
+    sleep 1
+  done
+}
+
+# Print a python expression's value from the current snapshot.
+snap_get() {
+  "$controller" snapshot 2>/dev/null | python3 -c "
+import sys, json
+print(eval(sys.argv[1], {}, {'d': json.load(sys.stdin)}))
+" "$1"
+}
+
+cleanup() {
+  [[ -n "${lsend_pid:-}" ]] && kill "$lsend_pid" 2>/dev/null || true
+  [[ -n "${watchdog_pid:-}" ]] && kill "$watchdog_pid" 2>/dev/null || true
+  [[ -n "${tmpdir:-}" ]] && rm -rf -- "$tmpdir" || true
+}
+trap cleanup EXIT
+
+# Daemon must be up.
+ping="$("$controller" ping)"
+echo "$ping" | python3 -c "
+import sys, json
+d = json.load(sys.stdin)
+sys.exit(0 if d.get('ok') is True and d['result'].get('status') == 'running' else 1)
+" || fail "localsend daemon is not running ($ping). Start it by restarting the omarchy shell."
+
+destination="$(snap_get 'd["result"]["daemon"]["destination"]')"
+[[ -n "$destination" && -d "$destination" ]] || fail "bad destination '$destination'"
+listing() { find "$destination" -maxdepth 1 2>/dev/null | sort; }
+baseline="$(listing)"
+
+# Payload + 90s watchdog that kills the whole test.
+tmpdir="$(mktemp -d)"
+payload="$tmpdir/payload.bin"
+head -c 4096 /dev/urandom > "$payload"
+payload_sum="$(sha256sum < "$payload" | cut -d' ' -f1)"
+( sleep 90 && kill "$$" ) 2>/dev/null & watchdog_pid=$!
+
+start_send() {
+  lsend send 127.0.0.1 "$payload" > "$tmpdir/lsend-$1.log" 2>&1 &
+  lsend_pid=$!
+}
+
+# Send, wait for the incoming request, note its id.
+wait_incoming() {
+  start_send "$1"
+  wait_for 'd["result"]["incoming"] is not None' 30 \
+    || fail "no incoming request appeared in snapshot within 30s (lsend log: $(cat "$tmpdir/lsend-$1.log" 2>/dev/null || true))"
+  request_id="$(snap_get 'd["result"]["incoming"]["id"]')"
+  [[ -n "$request_id" ]] || fail "incoming request had no id"
+}
+
+assert_decision() { # <state>
+  wait_for "any(t.get('id') == '$request_id' and t.get('state') == '$1' for t in d['result']['transfers'])" 10 \
+    || fail "transfer $request_id never reached state '$1' within 10s"
+}
+
+stop_send() {
+  kill "$lsend_pid" 2>/dev/null || true
+  wait "$lsend_pid" 2>/dev/null || true
+}
+
+# --- Decline path: sender cancelled, nothing materialised ---
+wait_incoming decline
+count="$(snap_get 'len(d["result"]["incoming"]["files"] or {})')"
+[[ "$count" -ge 1 ]] || fail "incoming request $request_id carried no files"
+out="$("$controller" decline --request "$request_id")"
+grep -q '"ok":true' <<<"$out" || fail "decline did not report ok:true ($out)"
+assert_decision declined
+[[ "$(listing)" == "$baseline" ]] || fail "declined transfer left a new file in $destination"
+stop_send
+
+# --- Accept path: sender completed, exactly one matching file ---
+wait_incoming accept
+out="$("$controller" accept --request "$request_id")"
+grep -q '"ok":true' <<<"$out" || fail "accept did not report ok:true ($out)"
+assert_decision completed
+stop_send
+
+mapfile -t new_files < <(comm -13 <(printf '%s\n' "$baseline") <(listing))
+[[ ${#new_files[@]} -eq 1 && -f "${new_files[0]}" ]] \
+  || fail "expected exactly 1 new file after accepting, got ${#new_files[@]}: ${new_files[*]:-none}"
+[[ "$(sha256sum < "${new_files[0]}" | cut -d' ' -f1)" == "$payload_sum" ]] \
+  || fail "received file ${new_files[0]} does not match the payload"
+rm -f -- "${new_files[0]}"
+
+echo "ok"

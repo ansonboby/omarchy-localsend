@@ -383,6 +383,11 @@ Item {
     var next = ({})
     for (var key in _notifiedRequests) next[key] = _notifiedRequests[key]
     next[id] = true
+    // Bound the dedup map so it cannot grow for the whole shell session.
+    if (Object.keys(next).length > 100) {
+      next = ({})
+      next[id] = true
+    }
     _notifiedRequests = next
     var sender = safeRemote(request.sender && request.sender.alias)
     var count = request.files instanceof Array ? request.files.length : 0
@@ -531,7 +536,9 @@ Item {
 
   Timer {
     id: startupTimeout
-    interval: 10000
+    // The launcher may download the pinned binary first (up to 300s); only
+    // then does the daemon process start and report ready.
+    interval: 310000
     repeat: false
     onTriggered: {
       if (!root.ready && daemonProcess.running) {
@@ -543,7 +550,10 @@ Item {
 
   Timer {
     id: pollTimer
-    interval: root.incoming || root.hasActiveTransfer ? 450 : 1500
+    // Poll fast while something is live; back off when the LAN is quiet.
+    interval: root.incoming || root.hasActiveTransfer
+      ? 450
+      : (root.onlineDeviceCount > 0 ? 1500 : 6000)
     repeat: true
     running: root.ready
     triggeredOnStart: true

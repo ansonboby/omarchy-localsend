@@ -34,6 +34,9 @@ jobs:
 
   release-artifact:
     runs-on: ubuntu-24.04
+    env:
+      # The controller pin points at the upstream release; verify it there.
+      CONTROLLER_UPSTREAM: cryptobredda/omarchy-localsend
     steps:
       - name: Check out release metadata
         uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
@@ -54,7 +57,7 @@ jobs:
           release_dir="$(mktemp -d)"
           trap 'rm -rf -- "$release_dir"' EXIT
           gh release download "$LOCALSEND_CONTROLLER_TAG" \
-            --repo "$GITHUB_REPOSITORY" \
+            --repo "$CONTROLLER_UPSTREAM" \
             --dir "$release_dir" \
             --pattern "$LOCALSEND_CONTROLLER_ASSET" \
             --pattern "$LOCALSEND_CONTROLLER_ASSET.sha256"
@@ -67,8 +70,8 @@ jobs:
           sha256sum --check --strict "$LOCALSEND_CONTROLLER_ASSET.sha256"
 
           gh attestation verify "$LOCALSEND_CONTROLLER_ASSET" \
-            --repo "$GITHUB_REPOSITORY" \
-            --signer-workflow "$GITHUB_REPOSITORY/.github/workflows/release-controller.yml" \
+            --repo "$CONTROLLER_UPSTREAM" \
+            --signer-workflow "$CONTROLLER_UPSTREAM/.github/workflows/release-controller.yml" \
             --signer-digest "$LOCALSEND_CONTROLLER_SOURCE_SHA" \
             --source-ref "refs/tags/$LOCALSEND_CONTROLLER_TAG" \
             --source-digest "$LOCALSEND_CONTROLLER_SOURCE_SHA" \
