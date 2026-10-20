@@ -7,7 +7,7 @@ Based on `cryptobredda/omarchy-localsend` (MIT), reworked under this fork's iden
 ## Features
 
 - Headless controller on the official LocalSend protocol core (v2.2) — no LocalSend GUI, TUI, or tray
-- Auto-run device discovery with a manual refresh; share **files, folders, or clipboard text**
+- Auto-run device discovery with a manual refresh; share **files, folders, or the clipboard** (images ride the file pipeline, text stays a text message)
 - Incoming transfers are **never** auto-accepted: an Accept/Decline card appears in the panel, plus a desktop notification whose click opens the panel
 - Live transfer progress, cancel, and error surfacing for both directions
 - **Persistent history** (last 24 finished transfers in `~/.local/state/omarchy/localsend-history.json`) shown as RECENT TRANSFERS, with one-click clear
@@ -58,7 +58,7 @@ The controller binary speaks to the daemon's socket directly, which is handy for
 ~/.config/omarchy/plugins/anson.localsend/bin/localsend-controller cancel --transfer <transfer-id>
 ```
 
-Incoming files land in the chosen destination with collision-safe names; incoming clipboard text is copied instead of saved.
+Incoming files land in the chosen destination with collision-safe names; incoming clipboard text is copied instead of saved; our clipboard-image sends clean up their temp copy once the transfer ends.
 
 ## Port note — syncing with the LocalSend app
 

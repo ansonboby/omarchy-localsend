@@ -456,7 +456,7 @@ Panel {
               width: parent.width
               text: root.payloadReady
                 ? "Select a nearby device to send now."
-                : "Pick files, a folder, or clipboard text first."
+                : "Pick files, a folder, or the clipboard first."
               color: root.dim
               font.family: root.fontFamily
               font.pixelSize: Style.font.caption

@@ -82,6 +82,10 @@ Item {
   property int _snapshotFailures: 0
   property string _chooserMode: ""
   property string _chooserOutput: ""
+  property string _clipboardTypeOutput: ""
+  property int _clipboardSeq: 0
+  property int _clipboardProbeSeq: 0
+  property string _clipboardTempPath: ""
   property string _chooserError: ""
   property var _notifiedRequests: ({})
 
@@ -289,6 +293,8 @@ Item {
       var state = String(transfer.state || "")
       if (state !== "completed" && state !== "declined" && state !== "cancelled" && state !== "failed") continue
       var files = transfer.files instanceof Array ? transfer.files : []
+      if (String(transfer.direction || "") === "out" && files.length === 1)
+        cleanupOutgoingClipboardTemp(String(files[0].name || ""))
       var entry = {
         id: String(transfer.id),
         direction: String(transfer.direction || "") === "incoming" ? "in" : "out",
@@ -454,11 +460,45 @@ Item {
   }
 
   function chooseClipboard() {
+    // Clipboard tile: an image on the Wayland clipboard goes through the
+    // files pipeline as a normal transfer (the receiver accepts like any
+    // file); text without an image keeps the daemon's clipboard-message path.
+    _clipboardSeq++
+    _clipboardProbeSeq = _clipboardSeq
+    if (clipboardTypeProbe.running) clipboardTypeProbe.running = false
+    _clipboardTypeOutput = ""
+    clipboardTypeProbe.command = ["wl-paste", "--list-types"]
+    clipboardTypeProbe.running = true
+  }
+
+  // Ordered preference: PNG re-encodes nothing lossy; anything else keeps
+  // its bytes as-is, so screenshots and photo copies arrive unmodified.
+  function bestClipboardImageType(types) {
+    var preferred = ["image/png", "image/jpeg", "image/webp", "image/gif", "image/bmp"]
+    for (var p = 0; p < preferred.length; p++)
+      if (types.indexOf(preferred[p]) !== -1) return preferred[p]
+    for (var i = 0; i < types.length; i++)
+      if (String(types[i]).indexOf("image/") === 0) return String(types[i])
+    return ""
+  }
+
+  function clipboardFallback() {
     payloadKind = "clipboard"
     selectedPaths = []
     payloadLabel = "Clipboard text"
     actionStatus = "Choose a nearby device"
     actionStatusTimer.restart()
+  }
+
+  // Our stamped outgoing temp payloads are removed as soon as the daemon
+  // reports a terminal state for that transfer.
+  function cleanupOutgoingClipboardTemp(fileName) {
+    fileName = String(fileName)
+    if (fileName.indexOf("/") !== -1) return
+    if (fileName.slice(0, 5) !== "clip-") return
+    if (clipboardCleanupProcess.running) return
+    clipboardCleanupProcess.command = ["rm", "-f", clipboardTempDir + "/" + fileName]
+    clipboardCleanupProcess.running = true
   }
 
   function finishChooser(exitCode) {
@@ -486,6 +526,60 @@ Item {
     payloadKind = ""
     selectedPaths = []
     payloadLabel = ""
+  }
+
+  function clipboardExt(type) {
+    var sub = String(type).slice(String(type).indexOf("/") + 1)
+    var map = { png: "png", jpeg: "jpg", webp: "webp", gif: "gif", bmp: "bmp" }
+    return map[sub] || (sub === "" ? "png" : sub)
+  }
+
+  // Image bytes > the 8 MiB cap are refused instead of silently degrading a
+  // transfer; a real screenshot or clipboard photo is far below this.
+  readonly property int clipboardImageMaxBytes: 8 * 1024 * 1024
+  readonly property string clipboardTempDir: "/tmp/omarchy-localsend"
+
+  function applyClipboardImage(exitCode) {
+    if (_clipboardProbeSeq !== _clipboardSeq) return
+    if (exitCode !== 0) {
+      clipboardFallback()
+      return
+    }
+    var type = bestClipboardImageType(String(_clipboardTypeOutput || "").split("\n"))
+    if (type === "") {
+      clipboardFallback()
+      return
+    }
+    var path = clipboardTempDir + "/clip-" + Date.now() + "." + clipboardExt(type)
+    _clipboardTempPath = path
+    clipboardImageGrabProcess.command = [
+      "bash", "-c",
+      "mkdir -p \"$1\" && wl-paste --type \"$2\" > \"$3\" && stat -c %s \"$3\"",
+      "grab-clipboard-image", clipboardTempDir, type, path
+    ]
+    clipboardImageGrabProcess.running = true
+  }
+
+  function finishClipboardGrab(exitCode) {
+    if (_clipboardProbeSeq !== _clipboardSeq) return
+    var size = parseInt(String(clipboardGrabStdout.text || ""), 10)
+    if (exitCode !== 0 || !isFinite(size)) {
+      clipboardFallback()
+      return
+    }
+    if (size > clipboardImageMaxBytes) {
+      clipboardCleanupProcess.command = ["rm", "-f", _clipboardTempPath]
+      clipboardCleanupProcess.running = true
+      lastError = "Clipboard image is " + formatBytes(size) + " — over the " + formatBytes(clipboardImageMaxBytes) + " limit"
+      actionStatus = ""
+      actionStatusTimer.restart()
+      return
+    }
+    payloadKind = "files"
+    selectedPaths = [_clipboardTempPath]
+    payloadLabel = "Clipboard image (" + formatBytes(size) + ")"
+    actionStatus = "Choose a nearby device"
+    actionStatusTimer.restart()
   }
 
   function sendToDevice(fingerprint) {
@@ -695,5 +789,42 @@ Item {
       onStreamFinished: root._chooserError = text
     }
     onExited: function(exitCode) { root.finishChooser(exitCode) }
+  }
+
+  // Wayland clipboard probe for the Clipboard tile; feeding exit dispatch
+  // through applyClipboardImage. The generation guards stop a *stale* probe
+  // (the tile pressed again, or the user picked a file meanwhile) from
+  // overwriting a newer payload.
+  Process {
+    id: clipboardTypeProbe
+    command: []
+    running: false
+    stdout: StdioCollector {
+      id: clipboardTypeStdout
+      waitForEnd: true
+      onStreamFinished: root._clipboardTypeOutput = text
+    }
+    onExited: function(exitCode) { root.applyClipboardImage(exitCode) }
+  }
+
+  Process {
+    id: clipboardImageGrabProcess
+    command: []
+    running: false
+    stdout: StdioCollector {
+      id: clipboardGrabStdout
+      waitForEnd: true
+    }
+    stderr: StdioCollector { waitForEnd: true }
+    onExited: function(exitCode) { root.finishClipboardGrab(exitCode) }
+  }
+
+  // Fire-and-forget remover for the temp clip-* file once its transfer ends
+  // (name is ours; the guard in cleanupClipboardTemp refuses anything with a
+  // path separator so a foreign name cannot escape the temp directory).
+  Process {
+    id: clipboardCleanupProcess
+    command: []
+    running: false
   }
 }
