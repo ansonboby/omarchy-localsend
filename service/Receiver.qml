@@ -50,7 +50,10 @@ Item {
   }
 
   readonly property bool choosing: chooserProcess.running
-  readonly property bool busy: choosing || rpcProcess.running
+  // Snapshot polls are read-only background refreshes; counting them as busy
+  // flashed the decision buttons dark ~34ms every 450ms and ate clicks mid-flip.
+  readonly property bool busy: choosing
+    || (rpcProcess.running && _currentRpc && _currentRpc.kind !== "snapshot")
   readonly property int onlineDeviceCount: {
     var count = 0
     for (var i = 0; i < devices.length; i++) if (devices[i] && devices[i].online === true) count++
