@@ -8,7 +8,7 @@ Based on `cryptobredda/omarchy-localsend` (MIT), reworked under this fork's iden
 
 - Headless controller on the official LocalSend protocol core (v2.2) — no LocalSend GUI, TUI, or tray
 - Auto-run device discovery with a manual refresh; share **files, folders, or the clipboard** (images ride the file pipeline, text stays a text message)
-- Incoming transfers are **never** auto-accepted: an Accept/Decline card appears in the panel, plus a desktop notification whose click opens the panel
+- Incoming transfers are **never** auto-accepted: an Accept/Decline card appears in the panel, and a bottom-right banner with **Accept / Decline buttons** pops for the offer itself (no trip through the notification daemon — Omarchy's toasts can't carry action buttons)
 - Live transfer progress, cancel, and error surfacing for both directions
 - **Persistent history** (last 24 finished transfers in `~/.local/state/omarchy/localsend-history.json`) shown as RECENT TRANSFERS, with one-click clear
 - **Synced with the LocalSend app**: device name follows the app's own (`flutter.ls_alias`) unless overridden; when the app runs, the daemon steps aside and hands it port `53317`, resuming when the app closes

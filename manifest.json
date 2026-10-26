@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "anson.localsend",
   "name": "LocalSend",
-  "version": "2.2.0",
+  "version": "2.3.0",
   "author": "ansonboby",
   "license": "MIT",
   "description": "LocalSend from the bar: automatic nearby-device discovery, explicit accept/decline for incoming transfers, share files/folders/clipboard, live transfer progress, and persistent history. Headless controller, no LocalSend GUI or tray.",

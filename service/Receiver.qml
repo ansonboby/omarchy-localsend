@@ -87,7 +87,17 @@ Item {
   property int _clipboardProbeSeq: 0
   property string _clipboardTempPath: ""
   property string _chooserError: ""
-  property var _notifiedRequests: ({})
+
+  // Incoming-offer banner: draws its own Accept/Decline buttons (the omarchy
+  // toast daemon supports no actions), replacing the system notification.
+  Toast {
+    incoming: root.incoming
+    appMode: root.appMode
+    busy: root.busy
+    formatBytes: root.formatBytes
+    onAccepted: function(id) { root.acceptRequest(id) }
+    onDeclined: function(id) { root.declineRequest(id) }
+  }
 
   function concise(text) {
     var value = String(text || "").replace(/\s+/g, " ").trim()
@@ -272,7 +282,6 @@ Item {
       lastError = "Controller returned an invalid snapshot"
       return
     }
-    var previousRequest = incoming && incoming.id ? String(incoming.id) : ""
     daemon = snapshot.daemon
     devices = snapshot.devices
     incoming = snapshot.incoming || null
@@ -281,7 +290,6 @@ Item {
     phase = ready ? "running" : String(snapshot.daemon.status || "unavailable")
     if (snapshot.error && snapshot.error.message) lastError = concise(snapshot.error.message)
     rememberFinished(snapshot.transfers)
-    if (incoming && incoming.id && String(incoming.id) !== previousRequest) notifyIncoming(incoming)
   }
 
   function rememberFinished(list) {
@@ -384,34 +392,6 @@ Item {
     if ((aliasChanged || destinationChanged) && daemonProcess.running &&
         _launchSignature !== "" && launchSignature() !== _launchSignature)
       restartDaemon()
-  }
-
-  function notifyIncoming(request) {
-    var id = String(request.id || "")
-    if (id === "" || _notifiedRequests[id]) return
-    var next = ({})
-    for (var key in _notifiedRequests) next[key] = _notifiedRequests[key]
-    next[id] = true
-    // Bound the dedup map so it cannot grow for the whole shell session.
-    if (Object.keys(next).length > 100) {
-      next = ({})
-      next[id] = true
-    }
-    _notifiedRequests = next
-    var sender = safeRemote(request.sender && request.sender.alias)
-    var count = request.files instanceof Array ? request.files.length : 0
-    var body = request.messagePreview !== null && request.messagePreview !== undefined
-      ? "Clipboard text from " + sender
-      : formatBytes(request.totalBytes) + " in " + count + (count === 1 ? " file" : " files") + " from " + sender
-    Quickshell.execDetached([
-      "omarchy-notification-send",
-      "--app-name", "LocalSend",
-      "--urgency", "normal",
-      "--glyph", "󰒊",
-      "Incoming LocalSend request",
-      body,
-      "--exec", "omarchy-shell", "-q", "shell", "summon", "anson.localsend"
-    ])
   }
 
   function handleAppProbe(detected) {
