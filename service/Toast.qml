@@ -14,12 +14,23 @@ Variants {
   property bool appMode: false
   property bool busy: false
   property var formatBytes: null
+  property string dismissedId: ""
+  property string _lastSeenId: ""
 
   signal accepted(string id)
   signal declined(string id)
 
-  // A fresh offer re-shows the banner even after an earlier one was dismissed.
-  onIncomingChanged: dismissedId = ""
+  // Snapshots replace the incoming object (same id) every poll; only a
+  // genuinely new offer id may clear the dismissal, or a click's hide would
+  // pop back within half a second and the re-appeared banner sits disabled
+  // while the accept RPC runs — looking exactly like dead buttons.
+  onIncomingChanged: {
+    var id = incoming && incoming.id ? String(incoming.id) : ""
+    if (id !== _lastSeenId) {
+      _lastSeenId = id
+      if (id !== "") dismissedId = ""
+    }
+  }
 
   model: Quickshell.screens
 
@@ -50,9 +61,9 @@ Variants {
 
     Rectangle {
       id: banner
-      anchors.bottom: parent.bottom
+      anchors.top: parent.top
       anchors.right: parent.right
-      anchors.bottomMargin: Style.space(8)
+      anchors.topMargin: Style.space(8)
       // Clear the vertical bar on the right edge.
       anchors.rightMargin: Style.bar.sizeVertical + Style.space(6)
       width: bannerRow.implicitWidth + Style.space(16)
