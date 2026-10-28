@@ -92,6 +92,7 @@ Item {
   // toast daemon supports no actions), replacing the system notification.
   Toast {
     incoming: root.incoming
+    transfers: root.transfers
     appMode: root.appMode
     busy: root.busy
     formatBytes: root.formatBytes
