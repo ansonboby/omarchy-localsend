@@ -1,6 +1,7 @@
 import QtQuick
 import QtQuick.Layouts
 import Quickshell
+import Quickshell.Io
 import Quickshell.Wayland
 import qs.Commons
 import qs.Ui
@@ -30,6 +31,32 @@ QtObject {
   property string receiveLabel: ""
   property real declinedAt: 0
   property real savedAt: 0
+
+  // Omarchy's notification service writes its DND flag here on every toggle
+  // (bar moon, SUPER+CTRL+comma). Watching the file keeps the card in step
+  // with "silence notifications" without any cross-plugin service access —
+  // the scoped shell a third-party service gets exposes no first-party API.
+  property bool silenced: false
+
+  property var silenceFile: FileView {
+    path: Quickshell.env("HOME") + "/.local/state/omarchy/notifications.json"
+    atomicWrites: false
+    watchChanges: true
+    printErrors: false
+    onLoaded: stack.loadSilence(text())
+    onLoadFailed: stack.silenced = false
+    onFileChanged: reload()
+  }
+
+  function loadSilence(text) {
+    try {
+      var parsed = JSON.parse(String(text || ""))
+      silenced = !!(parsed && parsed.dnd === true)
+    } catch (e) { silenced = false }
+  }
+
+  // No reset on silence: stage state stays, the card just hides (and a still-
+  // pending offer reappears when notifications are unsilenced).
 
   signal accepted(string id)
   signal declined(string id)
@@ -122,12 +149,15 @@ QtObject {
       required property var modelData
 
       readonly property var request: stack.incoming && stack.incoming.id
-        && !stack.appMode && String(stack.incoming.id) !== stack.dismissedId
+        && !stack.appMode && !stack.silenced
+        && String(stack.incoming.id) !== stack.dismissedId
         ? stack.incoming : null
       readonly property color bodyColor: Qt.darker(Color.notifications.text, 1.15)
 
       screen: modelData
-      visible: stack.stage === "offer" ? request !== null : stack.stage !== ""
+      visible: stack.silenced
+        ? false
+        : (stack.stage === "offer" ? request !== null : stack.stage !== "")
 
       WlrLayershell.namespace: "omarchy-localsend-toast"
       WlrLayershell.layer: WlrLayer.Overlay
