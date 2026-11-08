@@ -29,6 +29,7 @@ use serde_json::json;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::fs;
 use std::io::ErrorKind;
+use std::io::Write;
 use std::os::unix::fs::{FileTypeExt, MetadataExt, OpenOptionsExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
@@ -2309,8 +2310,11 @@ async fn shutdown_signal() {
 }
 
 fn emit_daemon_event(event: &str, result: serde_json::Value) {
+    // Daemon stdout/stderr are the launching shell's pipes; once the shell exits,
+    // println! would panic on EPIPE (and abort outright via the panic hook below).
+    // Event lines are advisory: drop them on error instead.
     let value = json!({"ok": true, "event": event, "result": result});
-    println!("{value}");
+    let _ = writeln!(std::io::stdout(), "{value}");
 }
 
 fn now() -> String {

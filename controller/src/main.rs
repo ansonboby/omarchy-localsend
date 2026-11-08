@@ -79,16 +79,17 @@ enum Command {
 #[tokio::main]
 async fn main() {
     std::panic::set_hook(Box::new(|_| {
-        eprintln!(
-            "{}",
-            json!({
-                "ok": false,
-                "error": {
-                    "code": "panic",
-                    "message": "The controller encountered an internal panic"
-                }
-            })
-        );
+        // A panic hook must not panic: an erroring eprintln! here turned a dead
+        // stderr pipe into a nested "panic in a function that cannot unwind" abort.
+        // Drop the message instead.
+        let payload = json!({
+            "ok": false,
+            "error": {
+                "code": "panic",
+                "message": "The controller encountered an internal panic"
+            }
+        });
+        let _ = writeln!(std::io::stderr(), "{payload}");
     }));
 
     let cli = match Cli::try_parse() {
