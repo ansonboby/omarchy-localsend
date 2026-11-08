@@ -1087,7 +1087,7 @@ dependencies = [
 
 [[package]]
 name = "localsend-controller"
-version = "2.0.6"
+version = "2.0.7"
 dependencies = [
  "anyhow",
  "bytes",
@@ -1102,6 +1102,7 @@ dependencies = [
  "rcgen",
  "serde",
  "serde_json",
+ "signal-hook-registry",
  "tempfile",
  "time",
  "tokio",

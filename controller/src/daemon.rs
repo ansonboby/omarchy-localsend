@@ -182,6 +182,23 @@ pub async fn run(config: DaemonConfig) -> Result<()> {
     // Register the shutdown channel before anything can observe this daemon:
     // the launcher's pdeathsig can land a SIGTERM between spawn and ready, and
     // late registration let the default disposition kill the process instead.
+    // tokio's signal future registers its subsystem lazily on FIRST POLL — in
+    // v2.0.6 that poll only happened after the ready announcement, so a TERM in
+    // that window still hit the inherited SIG_DFL. Register the disposition
+    // synchronously here instead; the select loop watches the flag below.
+    let shutdown_flag = Arc::new(AtomicBool::new(false));
+    {
+        let flag = Arc::clone(&shutdown_flag);
+        // Safe: only an atomic store inside the handler, which is async-signal-safe.
+        unsafe {
+            signal_hook_registry::register(libc::SIGTERM, move || {
+                flag.store(true, Ordering::SeqCst);
+            })
+        }
+        .expect("SIGTERM handler should be available on Linux");
+    }
+    // SIGINT (ctrl-c) stays on the lazy tokio path: nothing sends it during the
+    // pre-ready window.
     let shutdown_signal = shutdown_signal();
     tokio::pin!(shutdown_signal);
 
@@ -321,6 +338,9 @@ pub async fn run(config: DaemonConfig) -> Result<()> {
                 }
             }
             _ = &mut shutdown_signal => {
+                stop = true;
+            }
+            _ = shutdown_flag_ready(Arc::clone(&shutdown_flag)) => {
                 stop = true;
             }
         }
@@ -2310,6 +2330,18 @@ async fn shutdown_signal() {
     tokio::select! {
         _ = tokio::signal::ctrl_c() => {}
         _ = terminate.recv() => {}
+    }
+}
+
+// Watches the SIGTERM flag set by the synchronous registration at daemon start.
+// The tokio signal future only registers lazily at first poll, so this watcher
+// is what makes a pre-ready SIGTERM reach the shutdown path at all.
+async fn shutdown_flag_ready(flag: Arc<AtomicBool>) {
+    loop {
+        if flag.load(Ordering::SeqCst) {
+            return;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
     }
 }
 
