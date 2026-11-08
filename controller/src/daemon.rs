@@ -179,6 +179,12 @@ pub async fn run(config: DaemonConfig) -> Result<()> {
         "Destination path must be absolute"
     );
 
+    // Register the shutdown channel before anything can observe this daemon:
+    // the launcher's pdeathsig can land a SIGTERM between spawn and ready, and
+    // late registration let the default disposition kill the process instead.
+    let shutdown_signal = shutdown_signal();
+    tokio::pin!(shutdown_signal);
+
     // Keep the socket private from the instant it is created; chmod below
     // narrows it further to exactly 0600.
     unsafe {
@@ -286,8 +292,6 @@ pub async fn run(config: DaemonConfig) -> Result<()> {
     announce_tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
     // The staged refresh already announces immediately.
     announce_tick.tick().await;
-    let shutdown_signal = shutdown_signal();
-    tokio::pin!(shutdown_signal);
 
     let mut stop = false;
     while !stop {
